@@ -97,7 +97,7 @@ def _norm(s: str) -> str:
         return ""
     return unicodedata.normalize("NFKD", str(s)).encode("ascii","ignore").decode("ascii").strip().lower()
 
-def _cc_to_twemoji(cc: str) -> str | None:
+def _cc_to_twemoji(cc: str):
     if not cc or len(cc) != 2:
         return None
     a,b = cc.upper()
@@ -139,7 +139,6 @@ def _get_foot(row: pd.Series) -> str:
 
 # =========================
 # ROLE DEFINITIONS
-# (weights; percentiles computed in-app)
 # =========================
 CB_ROLES = {
     "Ball Playing CB": {"Passes per 90":2,"Accurate passes, %":2,"Forward passes per 90":2,"Accurate forward passes, %":2,
@@ -279,10 +278,8 @@ def add_percentiles(df: pd.DataFrame) -> pd.DataFrame:
         if m not in out.columns:
             continue
 
-        # rank pct per position group
         pct = out.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100)
 
-        # invert where lower is better
         if m in LOWER_BETTER:
             pct = 100 - pct
 
@@ -312,25 +309,20 @@ if not os.path.exists(CSV_PATH):
 
 df_all = pd.read_csv(CSV_PATH)
 
-# Required columns
 if "Team" not in df_all.columns or "Player" not in df_all.columns:
     st.error("CSV must include at least 'Team' and 'Player'.")
     st.stop()
 
-# Position group
 df_all["Position"] = df_all.get("Position", "").astype(str)
 df_all["PosGroup"] = df_all["Position"].apply(pos_group)
 
-# Add percentile columns FROM RAW METRICS
 df_all = add_percentiles(df_all)
 
-# Filter team
 df = df_all[df_all["Team"].astype(str).str.strip() == TEAM_NAME].copy()
 if df.empty:
     st.info(f"No players found for Team = '{TEAM_NAME}'.")
     st.stop()
 
-# Minutes filter + sort
 mins_col = detect_minutes_col(df)
 df[mins_col] = pd.to_numeric(df[mins_col], errors="coerce").fillna(0)
 df = df[df[mins_col] >= MIN_MINUTES].copy()
@@ -340,11 +332,10 @@ if df.empty:
     st.info(f"No players for {TEAM_NAME} with {mins_col} ≥ {MIN_MINUTES}.")
     st.stop()
 
-# Role scores
 df["RoleScores"] = df.apply(compute_role_scores_for_row, axis=1)
 
 # =========================
-# HEADER (components.html)
+# HEADER (components.html is OK here: single iframe)
 # =========================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri = img_to_data_uri(FLAG_PATH)
@@ -441,7 +432,9 @@ st.markdown("""
 .pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
 .pro-avatar img{ width:100%; height:100%; object-fit:cover; }
 
+.flagchip{ display:inline-flex; align-items:center; }
 .flagchip img{ width:26px; height:18px; border-radius:2px; display:block; }
+
 .chip{ color:#a6a6a6; font-size:15px; line-height:18px; opacity:.92; }
 .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:2px 0; }
 .leftrow1{ margin-top:6px; } .leftrow-foot{ margin-top:2px; } .leftrow-contract{ margin-top:6px; }
@@ -512,32 +505,32 @@ for i, row in df.iterrows():
     flag = _flag_html(birth)
     pos_html = _positions_html(pos)
 
-    # IMPORTANT: components.html so HTML can’t be printed as text
-    card_html = textwrap.dedent(f"""
-    <div class='pro-wrap'>
-      <div class='pro-card'>
-        <div>
-          <div class='pro-avatar'>
-            <img src="{DEFAULT_AVATAR}" alt="{player}" />
-          </div>
-          <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
-          <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
-          <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>
-        </div>
-
-        <div>
-          <div class='name'>{player}</div>
-          {pills_html}
-          <div class='row' style='margin-top:10px;'>{pos_html}</div>
-          <div class='teamline'>{TEAM_NAME} · {league}</div>
-        </div>
-
-        <div class='rank'>#{_fmt2(i+1)}</div>
+    # IMPORTANT FIX:
+    # - DO NOT use components.html for repeating cards (iframe breaks styling / sizing)
+    # - Render directly via st.markdown so CSS applies
+    card_html = f"""<div class='pro-wrap'>
+  <div class='pro-card'>
+    <div>
+      <div class='pro-avatar'>
+        <img src="{DEFAULT_AVATAR}" alt="{player}" />
       </div>
+      <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
+      <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
+      <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>
     </div>
-    """).strip()
 
-    components.html(card_html, height=210)
+    <div>
+      <div class='name'>{player}</div>
+      {pills_html}
+      <div class='row' style='margin-top:10px;'>{pos_html}</div>
+      <div class='teamline'>{TEAM_NAME} · {league}</div>
+    </div>
+
+    <div class='rank'>#{_fmt2(i+1)}</div>
+  </div>
+</div>"""
+
+    st.markdown(card_html, unsafe_allow_html=True)
 
 
 
