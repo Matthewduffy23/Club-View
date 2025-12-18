@@ -1,5 +1,6 @@
 import os
 import base64
+import textwrap
 import streamlit as st
 
 st.set_page_config(page_title="Club View", layout="wide")
@@ -41,7 +42,6 @@ def score_color(score: int) -> str:
     return COLORS[-1][1]
 
 def img_to_data_uri(path: str) -> str:
-    """Embed local image as data URI so layout is pure HTML/CSS (no Streamlit image blocks)."""
     if not path or not os.path.exists(path):
         return ""
     ext = os.path.splitext(path)[1].lower().replace(".", "")
@@ -54,14 +54,13 @@ def img_to_data_uri(path: str) -> str:
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri = img_to_data_uri(FLAG_PATH)
 
-# ---------- GLOBAL DARK STYLING ----------
+# ---------- CSS ----------
 st.markdown(
-    """
+    textwrap.dedent("""
     <style>
       .stApp { background:#0e0e0f; color:#f2f2f2; }
       .block-container { padding-top:1.4rem; padding-bottom:2rem; max-width:1150px; }
 
-      /* Card */
       .club-card{
         background:#1c1c1d;
         border:1px solid #2a2a2b;
@@ -69,18 +68,16 @@ st.markdown(
         padding:24px;
       }
 
-      /* Two-column header layout (like Swansea) */
       .header-grid{
         display:grid;
-        grid-template-columns: 220px 1fr;
+        grid-template-columns: 230px 1fr;
         gap: 26px;
         align-items: start;
       }
 
-      /* Crest tile on the left */
       .crest-tile{
-        width: 220px;
-        height: 220px;
+        width: 230px;
+        height: 230px;
         background:#121213;
         border:1px solid #2a2a2b;
         border-radius:20px;
@@ -89,14 +86,14 @@ st.markdown(
         justify-content:center;
         overflow:hidden;
       }
+
       .crest-img{
-        width: 180px;
-        height: 180px;
+        width: 190px;
+        height: 190px;
         object-fit: contain;
         display:block;
       }
 
-      /* Right side */
       .team-title{
         font-size:56px;
         font-weight:800;
@@ -105,7 +102,6 @@ st.markdown(
         color:#f2f2f2;
       }
 
-      /* Rating rows */
       .ratings-col{
         display:flex;
         flex-direction:column;
@@ -116,11 +112,10 @@ st.markdown(
       .metric{
         display:flex;
         align-items:center;
-        gap: 14px;
-        flex-wrap: wrap;
+        gap:14px;
+        flex-wrap:wrap;
       }
 
-      /* small pill: number only */
       .pill{
         width:60px;
         height:46px;
@@ -142,20 +137,18 @@ st.markdown(
         line-height:1;
       }
 
-      /* second row for ATT/MID/DEF */
       .triplet{
         display:flex;
-        gap: 30px;
-        flex-wrap: wrap;
+        gap:30px;
+        flex-wrap:wrap;
         align-items:center;
       }
 
-      /* League line */
       .league-row{
         display:flex;
         align-items:center;
-        gap: 12px;
-        margin-top: 14px;
+        gap:12px;
+        margin-top:14px;
       }
 
       .flag-img{
@@ -166,7 +159,7 @@ st.markdown(
         display:block;
       }
 
-      /* smaller league font than title */
+      /* smaller font for league */
       .league-text{
         font-size:34px;
         font-weight:700;
@@ -174,29 +167,27 @@ st.markdown(
         line-height:1;
       }
 
-      /* Info on different rows */
       .info{
-        margin-top: 14px;
+        margin-top:14px;
         display:flex;
         flex-direction:column;
-        gap: 6px;
+        gap:6px;
         font-size:18px;
         color:#b0b0b3;
       }
 
       h2 { margin-top: 36px; font-size: 34px; }
     </style>
-    """,
+    """),
     unsafe_allow_html=True
 )
 
-# ---------- HEADER (pure HTML so it cannot break into top/bottom) ----------
-header_html = f"""
+# ---------- HEADER HTML (DEDENTED so it doesn't become a code block) ----------
+header_html = textwrap.dedent(f"""
 <div class="club-card">
   <div class="header-grid">
-
     <div class="crest-tile">
-      {"<img class='crest-img' src='"+crest_uri+"'/>" if crest_uri else ""}
+      {f"<img class='crest-img' src='{crest_uri}'/>" if crest_uri else ""}
     </div>
 
     <div>
@@ -204,13 +195,11 @@ header_html = f"""
 
       <div class="ratings-col">
 
-        <!-- Overall row -->
         <div class="metric">
           <div class="pill" style="background:{score_color(OVERALL)}">{OVERALL}</div>
           <div class="label">Overall</div>
         </div>
 
-        <!-- ATT / MID / DEF row -->
         <div class="triplet">
           <div class="metric">
             <div class="pill" style="background:{score_color(ATT)}">{ATT}</div>
@@ -228,13 +217,11 @@ header_html = f"""
           </div>
         </div>
 
-        <!-- Flag + League below badges -->
         <div class="league-row">
-          {"<img class='flag-img' src='"+flag_uri+"'/>" if flag_uri else ""}
+          {f"<img class='flag-img' src='{flag_uri}'/>" if flag_uri else ""}
           <div class="league-text">{LEAGUE_TEXT}</div>
         </div>
 
-        <!-- Info on different rows -->
         <div class="info">
           <div><b>Average Age:</b> {AVG_AGE:.2f}</div>
           <div><b>League Position:</b> {LEAGUE_POSITION}</div>
@@ -242,10 +229,9 @@ header_html = f"""
 
       </div>
     </div>
-
   </div>
 </div>
-"""
+""")
 
 st.markdown(header_html, unsafe_allow_html=True)
 
@@ -255,6 +241,7 @@ if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
     st.image(PERFORMANCE_IMAGE_PATH, use_container_width=True)
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
+
 
 
 
