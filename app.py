@@ -891,108 +891,67 @@ def _parse_tags(s: str) -> list[str]:
     return out
 
 # =========================
-# TEAM NOTES — chips (manual)
-# Put DIRECTLY under the PERFORMANCE image block
+# TEAM NOTES (MANUAL – EDIT HERE ONLY)
 # =========================
 
-def _parse_tags_quick(s: str) -> list[str]:
-    if not s:
-        return []
-    # allow comma or newline separated
-    parts = re.split(r"[,\n]+", s.strip())
-    out = []
-    seen = set()
-    for p in parts:
-        t = p.strip()
-        if not t:
-            continue
-        k = t.lower()
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(t)
-    return out
+TEAM_STYLE = [
+    "Possession",
+    "Pressing",
+    "Structured",
+]
 
-def _chips_inline(items: list[str], bg: str) -> str:
+TEAM_STRENGTHS = [
+    "Chance Prevention",
+    "Game Control",
+    "Pressing Intensity",
+]
+
+TEAM_WEAKNESSES = [
+    "Finishing",
+    "Final 3rd Entries",
+    "Set Pieces",
+]
+
+# =========================
+# TEAM NOTES — DISPLAY (CHIPS ONLY)
+# =========================
+
+def _chip_row(items, bg):
     if not items:
-        return "<span style='color:#8b8f9c;'>—</span>"
-    # IMPORTANT: don't use st.utils.escape_html (not reliable across versions)
-    safe = [str(x).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;") for x in items[:25]]
-    return " ".join(
-        f"<span style='background:{bg};color:#111;padding:6px 10px;border-radius:12px;"
-        f"margin:0 8px 10px 0;display:inline-block;font-weight:700;font-size:14px;'>"
+        return ""
+    return "".join(
+        f"<span style='background:{bg};"
+        f"color:#0b0d12;"
+        f"padding:6px 14px;"
+        f"border-radius:999px;"
+        f"font-weight:800;"
+        f"font-size:14px;"
+        f"margin-right:8px;"
+        f"display:inline-block;'>"
         f"{t}</span>"
-        for t in safe
+        for t in items
     )
 
-TEAM_NOTES_KEY = f"team_notes::{_norm_one(TEAM_NAME)}"
-if TEAM_NOTES_KEY not in st.session_state:
-    st.session_state[TEAM_NOTES_KEY] = {"style": [], "strengths": [], "weaknesses": []}
+team_notes_html = f"""
+<div style="margin-top:16px;margin-bottom:32px;">
+  <div style="margin-bottom:12px;">
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Style:</div>
+    {_chip_row(TEAM_STYLE, "#bfdbfe")}
+  </div>
 
-# a little spacing but NO big title
-st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+  <div style="margin-bottom:12px;">
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Strengths:</div>
+    {_chip_row(TEAM_STRENGTHS, "#a7f3d0")}
+  </div>
 
-c1, c2, c3 = st.columns(3)
+  <div>
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Weaknesses:</div>
+    {_chip_row(TEAM_WEAKNESSES, "#fecaca")}
+  </div>
+</div>
+"""
 
-with c1:
-    style_in = st.text_input(
-        "Style (Possession, Pressing)",
-        value="",
-        key=f"{TEAM_NOTES_KEY}_style_in",
-        placeholder="e.g. Possession, Pressing, Structured",
-        label_visibility="visible",
-    )
-    if style_in.strip():
-        st.session_state[TEAM_NOTES_KEY]["style"] = _parse_tags_quick(
-            ",".join(st.session_state[TEAM_NOTES_KEY]["style"] + _parse_tags_quick(style_in))
-        )
-        st.session_state[f"{TEAM_NOTES_KEY}_style_in"] = ""  # clear box after entry
-
-    st.markdown(_chips_inline(st.session_state[TEAM_NOTES_KEY]["style"], "#bfdbfe"), unsafe_allow_html=True)
-
-with c2:
-    str_in = st.text_input(
-        "Strengths (Chance Prevention, Intensity)",
-        value="",
-        key=f"{TEAM_NOTES_KEY}_str_in",
-        placeholder="e.g. Chance creation, Game control",
-        label_visibility="visible",
-    )
-    if str_in.strip():
-        st.session_state[TEAM_NOTES_KEY]["strengths"] = _parse_tags_quick(
-            ",".join(st.session_state[TEAM_NOTES_KEY]["strengths"] + _parse_tags_quick(str_in))
-        )
-        st.session_state[f"{TEAM_NOTES_KEY}_str_in"] = ""
-
-    st.markdown(_chips_inline(st.session_state[TEAM_NOTES_KEY]["strengths"], "#a7f3d0"), unsafe_allow_html=True)
-
-with c3:
-    weak_in = st.text_input(
-        "Weaknesses (Finishing, Set Pieces)",
-        value="",
-        key=f"{TEAM_NOTES_KEY}_weak_in",
-        placeholder="e.g. Finishing, Final 3rd entries",
-        label_visibility="visible",
-    )
-    if weak_in.strip():
-        st.session_state[TEAM_NOTES_KEY]["weaknesses"] = _parse_tags_quick(
-            ",".join(st.session_state[TEAM_NOTES_KEY]["weaknesses"] + _parse_tags_quick(weak_in))
-        )
-        st.session_state[f"{TEAM_NOTES_KEY}_weak_in"] = ""
-
-    st.markdown(_chips_inline(st.session_state[TEAM_NOTES_KEY]["weaknesses"], "#fecaca"), unsafe_allow_html=True)
-
-# Optional: compact clear buttons (comment out if you don't want them)
-c4, c5, c6 = st.columns([1, 1, 1])
-with c4:
-    if st.button("Clear Style", key=f"{TEAM_NOTES_KEY}_clr_style"):
-        st.session_state[TEAM_NOTES_KEY]["style"] = []
-with c5:
-    if st.button("Clear Strengths", key=f"{TEAM_NOTES_KEY}_clr_str"):
-        st.session_state[TEAM_NOTES_KEY]["strengths"] = []
-with c6:
-    if st.button("Clear Weaknesses", key=f"{TEAM_NOTES_KEY}_clr_weak"):
-        st.session_state[TEAM_NOTES_KEY]["weaknesses"] = []
+st.markdown(team_notes_html, unsafe_allow_html=True)
 
 
 # =========================
