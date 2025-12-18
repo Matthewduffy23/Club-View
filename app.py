@@ -934,131 +934,74 @@ if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
-# =========================
-# PHOTO MAPS (hidden overrides + fotmob)
-# =========================
-local_overrides = load_local_photo_overrides(PLAYER_PHOTO_OVERRIDES_JSON)
-fm_map = fotmob_photo_map(FOTMOB_TEAM_URL)
+# ============================================================
+# SQUAD FILTERS (place ABOVE Pro Layout section)
+# ============================================================
+st.markdown("<div class='section-title' style='margin-top:10px;'>SQUAD</div>", unsafe_allow_html=True)
 
-# Team badge (use same badge everywhere – from CREST_PATH)
-badge_uri = crest_uri  # you asked: badge used in player profile = same as team badge
+# Display filters (minutes affects POOL + display; age is display only)
+min_pool_default, max_pool_default = 500, 5000
+age_min_default, age_max_default = 16, 45
+
+cA, cB, cC = st.columns([2.2, 2.2, 1.6])
+with cA:
+    pool_minutes = st.slider(
+        "Minutes (pool + display)",
+        min_value=0,
+        max_value=int(max(5000, df_all[mins_col].max() if len(df_all) else 5000)),
+        value=(min_pool_default, max_pool_default),
+        step=10,
+        key="minutes_pool",
+    )
+with cB:
+    age_range = st.slider(
+        "Age (display only)",
+        min_value=16,
+        max_value=45,
+        value=(age_min_default, age_max_default),
+        step=1,
+        key="age_display",
+    )
+with cC:
+    visa_only = st.checkbox("Visa players (exclude China PR)", value=False, key="visa_only")
+
+pool_min, pool_max = pool_minutes
+age_min, age_max = age_range
 
 # =========================
-# RENDER SQUAD CARDS
+# Compute POOL percentiles (minutes slider affects calculations)
 # =========================
-if df_disp.empty:
-    st.info("No players match your filters.")
+pool_mask = (df_all[mins_col] >= pool_min) & (df_all[mins_col] <= pool_max)
+
+df_all = add_pool_percentiles(df_all, pool_mask=pool_mask, min_group=5)
+df_all["RoleScores"] = df_all.apply(compute_role_scores_for_row, axis=1)
+
+# =========================
+# TEAM FILTER FOR DISPLAY LIST
+# =========================
+df_team = df_all[df_all["Team"].astype(str).str.strip() == TEAM_NAME].copy()
+if df_team.empty:
+    st.info(f"No players found for Team = '{TEAM_NAME}'.")
     st.stop()
 
-for i, row in df_disp.iterrows():
-    player = str(row.get("Player","—"))
-    league  = str(row.get("League",""))
-    pos     = str(row.get("Position",""))
-    birth   = str(row.get("Birth country","")) if "Birth country" in df_disp.columns else ""
-    foot    = _get_foot(row) or "—"
-    age_txt = _age_text(row)
-    contract_txt = _contract_year(row)
-    mins = int(row.get(mins_col, 0) or 0)
+df_disp = df_team[(df_team[mins_col] >= pool_min) & (df_team[mins_col] <= pool_max)].copy()
 
-    roles = row.get("RoleScores", {})
-    if not isinstance(roles, dict):
-        roles = {}
-    roles_sorted = sorted(roles.items(), key=lambda x: x[1], reverse=True)
+# Age (display only)
+if "Age" in df_disp.columns:
+    df_disp["Age_num"] = pd.to_numeric(df_disp["Age"], errors="coerce")
+    df_disp = df_disp[(df_disp["Age_num"].fillna(0) >= age_min) & (df_disp["Age_num"].fillna(0) <= age_max)]
 
-    pills_html = (
-        "".join(
-            f"<div class='row' style='align-items:center;'>"
-            f"<span class='pill' style='background:{_pro_rating_color(v)}'>{_fmt2(v)}</span>"
-            f"<span class='chip'>{k}</span>"
-            f"</div>"
-            for k, v in roles_sorted
-        )
-        if roles_sorted else
-        "<div class='row'><span class='chip'>No role scores</span></div>"
-    )
+# Visa toggle (display only)
+if visa_only and "Birth country" in df_disp.columns:
+    bc_norm = _norm_series(df_disp["Birth country"])
+    df_disp = df_disp[bc_norm.ne("china pr")]
 
-    flag = _flag_html(birth)
-    pos_html = _positions_html(pos)
+df_disp = df_disp.sort_values(mins_col, ascending=False).reset_index(drop=True)
 
-    avatar_url = resolve_player_photo(player, fm_map, local_overrides)
-
-    # Team line with badge icon
-    badge_html = f"<img class='badge-mini' src='{badge_uri}' alt='badge' />" if badge_uri else ""
-    teamline_html = f"<div class='teamline teamline-wrap'>{badge_html}<span>{TEAM_NAME} · {league}</span></div>"
-
-    # Card HTML (NO leading indentation -> avoids markdown code blocks)
-    card_html = (
-        f"<div class='pro-wrap'>"
-        f"  <div class='pro-card'>"
-        f"    <div>"
-        f"      <div class='pro-avatar'><img src='{avatar_url}' alt='{player}' loading='lazy' /></div>"
-        f"      <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>"
-        f"      <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>"
-        f"      <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>"
-        f"    </div>"
-        f"    <div>"
-        f"      <div class='name'>{player}</div>"
-        f"      {pills_html}"
-        f"      <div class='row' style='margin-top:10px;'>{pos_html}</div>"
-        f"      {teamline_html}"
-        f"    </div>"
-        f"    <div class='rank'>#{_fmt2(i+1)}</div>"
-        f"  </div>"
-        f"</div>"
-    )
-    st.markdown(card_html, unsafe_allow_html=True)
-
-    # ============= Individual Metrics expander (position-specific, hide missing/uncalculated) =============
-    g = str(row.get("PosGroup","OTHER"))
-    metric_blocks = METRICS_BY_GROUP.get(g, {})
-
-    with st.expander("Individual Metrics", expanded=False):
-        if not metric_blocks:
-            st.info("No metric template for this position group.")
-        else:
-            sections_html = []
-            for sec_title, pairs in metric_blocks.items():
-                available_pairs = _available_metric_pairs(df_all, pairs)
-                rows_html = []
-
-                for lab, met in available_pairs:
-                    pct = _metric_pct(row, met)
-                    val = _metric_val(row, met)
-
-                    # "Don't display metrics with no calculation"
-                    # If percentile is NaN OR metric value is NaN -> skip
-                    if pd.isna(pct) or pd.isna(val):
-                        continue
-
-                    p_int = _pro_show99(pct)
-                    # show raw value compact (2dp)
-                    val_txt = f"{val:.2f}"
-
-                    rows_html.append(
-                        f"<div class='m-row'>"
-                        f"  <div class='m-label'>{lab}</div>"
-                        f"  <div class='m-right'>"
-                        f"    <div class='m-val'>{val_txt}</div>"
-                        f"    <div class='m-badge' style='background:{_pro_rating_color(p_int)}'>{_fmt2(p_int)}</div>"
-                        f"  </div>"
-                        f"</div>"
-                    )
-
-                if rows_html:
-                    sections_html.append(
-                        f"<div class='m-sec'>"
-                        f"  <div class='m-title'>{sec_title}</div>"
-                        f"  {''.join(rows_html)}"
-                        f"</div>"
-                    )
-
-            if sections_html:
-                st.markdown(
-                    "<div class='metrics-grid'>" + "".join(sections_html) + "</div>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.info("No available metrics found for this player (missing columns or no computed percentiles).")
+# ============================================================
+# PLAYERS (subtitle immediately above the Pro Layout cards)
+# ============================================================
+st.markdown("<div class='section-title' style='margin-top:10px;'>PLAYERS</div>", unsafe_allow_html=True)
 
 
 
