@@ -248,7 +248,7 @@ header_html = f"""
 """
 
 # Height should comfortably fit the card
-components.html(header_html, height=320)
+components.html(header_html, height=360)
 
 # ---- Performance section ----
 st.markdown("## Performance")
