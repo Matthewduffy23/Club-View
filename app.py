@@ -4,19 +4,19 @@ import base64
 import unicodedata
 import textwrap
 import pandas as pd
+import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
 
 # =========================
-# CONFIG (edit in code only)
+# CONFIG
 # =========================
 CSV_PATH = "Chinaall.csv"
 TEAM_NAME = "Chengdu Rongcheng"
-MIN_MINUTES = 400
 
-CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"   # adjust if filename differs
-FLAG_PATH = "images/china.png"                        # adjust if filename differs
-PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"     # your image
+CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"
+FLAG_PATH = "images/china.png"
+PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
 
 # Header manual inputs
 OVERALL = 88
@@ -77,7 +77,7 @@ def _pro_chip_color(p: str) -> str:
     return _POS_COLORS.get(str(p).strip().upper(), "#2d3550")
 
 # =========================
-# FLAGS (Twemoji) — expanded mapping (from your earlier pro-layout)
+# FLAGS (Twemoji) — expanded mapping
 # =========================
 TWEMOJI_SPECIAL = {
     "eng":"1f3f4-e0067-e0062-e0065-e006e-e0067-e007f",
@@ -85,57 +85,17 @@ TWEMOJI_SPECIAL = {
     "wls":"1f3f4-e0067-e0062-e0077-e006c-e0073-e007f",
 }
 
-# Expanded country-name -> ISO-2 code map (large; keep as-is)
 COUNTRY_TO_CC = {
-    # UK home nations
-    "united kingdom":"gb","great britain":"gb","northern ireland":"nir","england":"eng","scotland":"sct","wales":"wls",
-
-    # Europe
-    "ireland":"ie","republic of ireland":"ie","spain":"es","france":"fr","germany":"de","italy":"it","portugal":"pt",
-    "netherlands":"nl","belgium":"be","austria":"at","switzerland":"ch","denmark":"dk","sweden":"se","norway":"no",
-    "finland":"fi","iceland":"is","poland":"pl","czech republic":"cz","czechia":"cz","slovakia":"sk","slovenia":"si",
-    "croatia":"hr","serbia":"rs","bosnia and herzegovina":"ba","bosnia":"ba","montenegro":"me","kosovo":"xk","albania":"al",
-    "greece":"gr","hungary":"hu","romania":"ro","bulgaria":"bg","russia":"ru","ukraine":"ua","georgia":"ge",
-    "kazakhstan":"kz","azerbaijan":"az","armenia":"am","turkey":"tr","cyprus":"cy","luxembourg":"lu","andorra":"ad",
-    "monaco":"mc","san marino":"sm","malta":"mt","moldova":"md","north macedonia":"mk","macedonia":"mk","estonia":"ee",
-    "latvia":"lv","lithuania":"lt",
-
-    # Middle East & Asia
-    "qatar":"qa","saudi arabia":"sa","uae":"ae","united arab emirates":"ae","israel":"il","japan":"jp","korea":"kr",
-    "south korea":"kr","korea republic":"kr","china":"cn",
-
-    # Africa — expansion
-    "algeria":"dz","angola":"ao","benin":"bj","botswana":"bw","burkina faso":"bf","burundi":"bi","cabo verde":"cv",
-    "cape verde":"cv","cameroon":"cm","central african republic":"cf","car":"cf","chad":"td","comoros":"km",
-    "congo":"cg","republic of the congo":"cg","congo brazzaville":"cg",
-    "dr congo":"cd","drc":"cd","democratic republic of the congo":"cd","congo kinshasa":"cd",
-    "djibouti":"dj","egypt":"eg","equatorial guinea":"gq","eritrea":"er","eswatini":"sz","swaziland":"sz",
-    "ethiopia":"et","gabon":"ga","gambia":"gm","ghana":"gh","guinea":"gn","guinea-bissau":"gw","guinea bissau":"gw",
-    "ivory coast":"ci","cote d'ivoire":"ci","cote divoire":"ci","cote d ivoire":"ci","côte d’ivoire":"ci","côte d'ivoire":"ci",
-    "kenya":"ke","lesotho":"ls","liberia":"lr","libya":"ly","madagascar":"mg","malawi":"mw","mali":"ml","mauritania":"mr",
-    "mauritius":"mu","morocco":"ma","mozambique":"mz","namibia":"na","niger":"ne","nigeria":"ng","rwanda":"rw",
-    "sao tome and principe":"st","sao tome":"st","são tomé and príncipe":"st","são tomé":"st","sao tome & principe":"st",
-    "senegal":"sn","seychelles":"sc","sierra leone":"sl","somalia":"so","south africa":"za","south sudan":"ss","sudan":"sd",
-    "tanzania":"tz","united republic of tanzania":"tz","togo":"tg","tunisia":"tn","uganda":"ug","zambia":"zm","zimbabwe":"zw",
-    "western sahara":"eh","réunion":"re","reunion":"re","mayotte":"yt",
-
-    # Variants
-    "maroc":"ma","algerie":"dz","tunis":"tn","egypte":"eg","cameroun":"cm","cote d’ivoire":"ci","cote-d-ivoire":"ci",
-    "somaliland":"so","ethiopie":"et",
-    "eswatini (swaziland)":"sz","swaziland (eswatini)":"sz",
-    "congo-brazzaville":"cg","congo-kinshasa":"cd","gbissau":"gw",
-
-    # Americas
-    "brazil":"br","argentina":"ar","uruguay":"uy","chile":"cl","colombia":"co","peru":"pe","ecuador":"ec","paraguay":"py",
-    "bolivia":"bo","mexico":"mx","canada":"ca","united states":"us","usa":"us",
-
-    # Oceania
-    "australia":"au","new zealand":"nz",
-
-    # Extras
-    "palestine":"ps","state of palestine":"ps",
-    "hong kong":"hk","macau":"mo","macao":"mo",
-    "curacao":"cw","curaçao":"cw","cape verde islands":"cv",
+    "china":"cn","japan":"jp","south korea":"kr","korea":"kr",
+    "england":"eng","scotland":"sct","wales":"wls",
+    "united kingdom":"gb","great britain":"gb",
+    "brazil":"br","argentina":"ar","uruguay":"uy","colombia":"co","chile":"cl","peru":"pe","ecuador":"ec","paraguay":"py","bolivia":"bo",
+    "spain":"es","france":"fr","germany":"de","italy":"it","portugal":"pt","netherlands":"nl","belgium":"be","sweden":"se","norway":"no",
+    "denmark":"dk","poland":"pl","austria":"at","switzerland":"ch","croatia":"hr","serbia":"rs","romania":"ro","greece":"gr","turkey":"tr",
+    "united states":"us","usa":"us","canada":"ca","mexico":"mx","australia":"au","new zealand":"nz",
+    "israel":"il","iran":"ir","iraq":"iq","qatar":"qa","saudi arabia":"sa","uae":"ae","united arab emirates":"ae",
+    "morocco":"ma","algeria":"dz","tunisia":"tn","egypt":"eg","ghana":"gh","nigeria":"ng","senegal":"sn","mali":"ml","cameroon":"cm",
+    "ivory coast":"ci","cote d'ivoire":"ci","cote divoire":"ci",
 }
 
 def _norm(s: str) -> str:
@@ -164,7 +124,6 @@ def _flag_html(country_name: str) -> str:
         src = f"https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/{code}.svg"
         return f"<span class='flagchip'><img src='{src}' alt='{country_name}'></span>"
 
-    # ISO-2 expected for regional flags
     code = _cc_to_twemoji(cc) if len(cc) == 2 else None
     if code:
         src = f"https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/{code}.svg"
@@ -176,7 +135,7 @@ def _flag_html(country_name: str) -> str:
 # SAFE FOOT EXTRACTOR
 # =========================
 def _get_foot(row: pd.Series) -> str:
-    for col in ("Foot", "Preferred foot", "Preferred Foot"):
+    for col in ("Foot","Preferred foot","Preferred Foot"):
         if col in row.index:
             v = row.get(col)
             try:
@@ -185,7 +144,7 @@ def _get_foot(row: pd.Series) -> str:
             except Exception:
                 pass
             s = str(v).strip()
-            if s and s.lower() not in {"nan", "none", "null"}:
+            if s and s.lower() not in {"nan","none","null"}:
                 return s
     return ""
 
@@ -237,77 +196,40 @@ GK_ROLES = {
     "Sweeper GK": {"Exits per 90":1},
 }
 
-# lower is better -> invert percentile
 LOWER_BETTER = {"Conceded goals per 90"}
 
-def pos_group(pos: str) -> str:
-    p = str(pos).strip().upper()
-    if p.startswith(("GK",)):
+# =========================
+# Position helpers (Primary Position fix)
+# =========================
+ATT_VALID_PRIMARY = ("RW", "LW", "LWF", "RWF", "AMF", "LAMF", "RAMF")
+
+def add_primary_position(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["Primary Position"] = out["Position"].astype(str).str.split(",").str[0].str.strip().str.upper()
+    return out
+
+def pos_group_from_primary(primary_pos: str) -> str:
+    p = str(primary_pos).strip().upper()
+    if p.startswith("GK"):
         return "GK"
-    if p.startswith(("LCB", "RCB", "CB")):
+    if p.startswith(("LCB","RCB","CB")):
         return "CB"
-    if p.startswith(("RB", "RWB", "LB", "LWB")):
+    if p.startswith(("RB","RWB","LB","LWB")):
         return "FB"
-    if p.startswith(("LCMF", "RCMF", "LDMF", "RDMF", "DMF", "CMF")):
+    if p.startswith(("LCMF","RCMF","LDMF","RDMF","DMF","CMF")):
         return "CM"
-    if p in {"RW", "RWF", "RAMF", "LW", "LWF", "LAMF", "AMF"}:
+    if p in set(ATT_VALID_PRIMARY):
         return "ATT"
-    if p.startswith(("CF",)):
+    if p.startswith("CF"):
         return "CF"
     return "OTHER"
 
-def weighted_role_score(row: pd.Series, weights: dict) -> int:
-    num, den = 0.0, 0.0
-    for metric, w in weights.items():
-        col = f"{metric} Percentile"
-        v = row.get(col, 0)
-        try:
-            v = float(v)
-        except Exception:
-            v = 0.0
-        if pd.isna(v):
-            v = 0.0
-        num += w * v
-        den += w
-    score_0_100 = (num / den) if den > 0 else 0.0
-    return _pro_show99(score_0_100)
-
-def compute_role_scores_for_row(row: pd.Series) -> dict:
-    g = row.get("PosGroup", "OTHER")
-    if g == "GK":
-        return {k: weighted_role_score(row, w) for k, w in GK_ROLES.items()}
-    if g == "CB":
-        return {k: weighted_role_score(row, w) for k, w in CB_ROLES.items()}
-    if g == "FB":
-        return {k: weighted_role_score(row, w) for k, w in FB_ROLES.items()}
-    if g == "CM":
-        roles = {k: weighted_role_score(row, w) for k, w in CM_ROLES.items()}
-        return dict(sorted(roles.items(), key=lambda x: x[1], reverse=True)[:3])  # top 3 only
-    if g == "ATT":
-        return {k: weighted_role_score(row, w) for k, w in ATT_ROLES.items()}
-    if g == "CF":
-        return {k: weighted_role_score(row, w) for k, w in CF_ROLES.items()}
-    return {}
-
 def detect_minutes_col(df: pd.DataFrame) -> str:
-    for c in ["Minutes played", "Minutes Played", "Minutes", "mins", "minutes", "Min"]:
+    for c in ["Minutes played","Minutes Played","Minutes","mins","minutes","Min"]:
         if c in df.columns:
             return c
     return "Minutes played"
 
-def img_to_data_uri(path: str) -> str:
-    if not path or not os.path.exists(path):
-        return ""
-    ext = os.path.splitext(path)[1].lower().replace(".", "")
-    if ext == "jpg":
-        ext = "jpeg"
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
-    return f"data:image/{ext};base64,{b64}"
-
-# =========================
-# Compute percentiles from raw metrics
-# =========================
 def metrics_used_by_roles() -> set:
     rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
     s = set()
@@ -320,7 +242,6 @@ def add_percentiles(df: pd.DataFrame) -> pd.DataFrame:
     used = metrics_used_by_roles()
     out = df.copy()
 
-    # ensure numeric where possible
     for m in used:
         if m in out.columns:
             out[m] = pd.to_numeric(out[m], errors="coerce")
@@ -335,12 +256,80 @@ def add_percentiles(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
+def weighted_role_score(row: pd.Series, weights: dict) -> int:
+    num, den = 0.0, 0.0
+    for metric, w in weights.items():
+        col = f"{metric} Percentile"
+        v = row.get(col, 0)
+        try:
+            v = float(v)
+        except Exception:
+            v = 0.0
+        if pd.isna(v):
+            v = 0.0
+        num += w * v
+        den += w
+    return _pro_show99((num / den) if den > 0 else 0.0)
+
+def compute_role_scores_for_row(row: pd.Series) -> dict:
+    g = row.get("PosGroup", "OTHER")
+    if g == "GK":
+        return {k: weighted_role_score(row, w) for k, w in GK_ROLES.items()}
+    if g == "CB":
+        return {k: weighted_role_score(row, w) for k, w in CB_ROLES.items()}
+    if g == "FB":
+        return {k: weighted_role_score(row, w) for k, w in FB_ROLES.items()}
+    if g == "CM":
+        roles = {k: weighted_role_score(row, w) for k, w in CM_ROLES.items()}
+        return dict(sorted(roles.items(), key=lambda x: x[1], reverse=True)[:3])
+    if g == "ATT":
+        return {k: weighted_role_score(row, w) for k, w in ATT_ROLES.items()}
+    if g == "CF":
+        return {k: weighted_role_score(row, w) for k, w in CF_ROLES.items()}
+    return {}
+
+def img_to_data_uri(path: str) -> str:
+    if not path or not os.path.exists(path):
+        return ""
+    ext = os.path.splitext(path)[1].lower().replace(".","")
+    if ext == "jpg":
+        ext = "jpeg"
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/{ext};base64,{b64}"
+
+def _age_text(row: pd.Series) -> str:
+    if "Age" in row.index:
+        try:
+            a = int(float(row["Age"]))
+            return f"{a}y.o." if a > 0 else "—"
+        except Exception:
+            return "—"
+    return "—"
+
+def _contract_year(row: pd.Series) -> str:
+    for c in ("Contract expires", "Contract Expires", "Contract", "Contract expiry"):
+        if c in row.index:
+            cy = pd.to_datetime(row.get(c), errors="coerce")
+            return f"{int(cy.year)}" if pd.notna(cy) else "—"
+    return "—"
+
+def _positions_html(pos: str) -> str:
+    raw = (pos or "").strip().upper()
+    tokens = [t for t in re.split(r"[,\s/;]+", raw) if t]
+    seen, ordered = set(), []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            ordered.append(t)
+    return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
+
 # =========================
 # STREAMLIT SETUP
 # =========================
 st.set_page_config(page_title="Club View", layout="wide", initial_sidebar_state="collapsed")
 
-# ✅ “Font styles back to what they were” (your earlier pro-layout look)
+# Back to “pro-layout” font smoothing / numeric style
 st.markdown("""
 <style>
 html, body, .block-container *{
@@ -353,6 +342,10 @@ html, body, .block-container *{
 .stApp { background:#0e0e0f; color:#f2f2f2; }
 .block-container { padding-top:1.3rem; padding-bottom:2rem; max-width:1150px; }
 header, footer { visibility:hidden; }
+.section-title{
+  font-size:40px;font-weight:900;letter-spacing:1px;
+  margin-top:26px;margin-bottom:12px;color:#f2f2f2;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -365,37 +358,119 @@ if not os.path.exists(CSV_PATH):
 
 df_all = pd.read_csv(CSV_PATH)
 
-if "Team" not in df_all.columns or "Player" not in df_all.columns:
-    st.error("CSV must include at least 'Team' and 'Player'.")
+if "Team" not in df_all.columns or "Player" not in df_all.columns or "Position" not in df_all.columns:
+    st.error("CSV must include at least: Team, Player, Position.")
     st.stop()
 
-df_all["Position"] = df_all.get("Position", "").astype(str)
-df_all["PosGroup"] = df_all["Position"].apply(pos_group)
+mins_col_all = detect_minutes_col(df_all)
+df_all[mins_col_all] = pd.to_numeric(df_all[mins_col_all], errors="coerce").fillna(0)
 
-# percentiles across full dataset (within PosGroup)
-df_all = add_percentiles(df_all)
+# Add Primary Position + PosGroup (FIXES ATTACKERS)
+df_all = add_primary_position(df_all)
+df_all["PosGroup"] = df_all["Primary Position"].apply(pos_group_from_primary)
 
-# Filter team
-df = df_all[df_all["Team"].astype(str).str.strip() == TEAM_NAME].copy()
-if df.empty:
-    st.info(f"No players found for Team = '{TEAM_NAME}'.")
+# =========================
+# TOP CONTROLS (Minutes affects pool; Age only affects display)
+# =========================
+st.markdown("<div class='section-title' style='margin-top:0;'>FILTERS</div>", unsafe_allow_html=True)
+
+c1, c2, c3 = st.columns([1.3, 1.0, 1.7])
+
+with c1:
+    mins_min_default, mins_max_default = 500, 5000
+    max_mins = int(max(5000, float(df_all[mins_col_all].max() if len(df_all) else 5000)))
+    minutes_range = st.slider(
+        "Minutes range (affects percentile pool & role scores)",
+        min_value=0,
+        max_value=max_mins,
+        value=(mins_min_default, min(max_mins, mins_max_default)),
+        step=50
+    )
+
+with c2:
+    age_range = st.slider(
+        "Age range (display only)",
+        min_value=16,
+        max_value=45,
+        value=(16, 45),
+        step=1
+    )
+
+# Apply minutes range to POOL BEFORE percentiles
+pool = df_all[(df_all[mins_col_all] >= minutes_range[0]) & (df_all[mins_col_all] <= minutes_range[1])].copy()
+if pool.empty:
+    st.warning("No players in the selected minutes range (pool is empty). Widen the minutes slider.")
     st.stop()
 
-# Minutes filter + sort
-mins_col = detect_minutes_col(df)
-df[mins_col] = pd.to_numeric(df[mins_col], errors="coerce").fillna(0)
-df = df[df[mins_col] >= MIN_MINUTES].copy()
-df = df.sort_values(mins_col, ascending=False).reset_index(drop=True)
+# Compute percentiles inside the selected pool
+pool = add_percentiles(pool)
 
-if df.empty:
-    st.info(f"No players for {TEAM_NAME} with {mins_col} ≥ {MIN_MINUTES}.")
+# Team view from pool (so role scores are consistent with pool)
+df_team = pool[pool["Team"].astype(str).str.strip() == TEAM_NAME].copy()
+if df_team.empty:
+    st.info(f"No players found for Team = '{TEAM_NAME}' inside the minutes pool.")
     st.stop()
 
 # Role scores
-df["RoleScores"] = df.apply(compute_role_scores_for_row, axis=1)
+df_team["RoleScores"] = df_team.apply(compute_role_scores_for_row, axis=1)
+
+# Apply AGE DISPLAY filter (does NOT affect pool)
+if "Age" in df_team.columns:
+    df_team["Age_num"] = pd.to_numeric(df_team["Age"], errors="coerce")
+    df_view = df_team[(df_team["Age_num"] >= age_range[0]) & (df_team["Age_num"] <= age_range[1])].copy()
+else:
+    df_view = df_team.copy()
+
+# Sort displayed players by minutes DESC
+df_view = df_view.sort_values(mins_col_all, ascending=False).reset_index(drop=True)
 
 # =========================
-# HEADER (single iframe is fine)
+# PLAYER METRICS DROPDOWN
+# =========================
+with c3:
+    player_choice = st.selectbox(
+        "Individual player metrics",
+        options=["— Select —"] + df_view["Player"].astype(str).tolist(),
+        index=0
+    )
+
+if player_choice != "— Select —":
+    prow = df_view[df_view["Player"].astype(str) == player_choice].head(1)
+    if not prow.empty:
+        prow = prow.iloc[0]
+        pg = prow.get("PosGroup", "OTHER")
+
+        if pg == "GK":
+            role_metrics = sorted({m for r in GK_ROLES.values() for m in r.keys()})
+        elif pg == "CB":
+            role_metrics = sorted({m for r in CB_ROLES.values() for m in r.keys()})
+        elif pg == "FB":
+            role_metrics = sorted({m for r in FB_ROLES.values() for m in r.keys()})
+        elif pg == "CM":
+            role_metrics = sorted({m for r in CM_ROLES.values() for m in r.keys()})
+        elif pg == "ATT":
+            role_metrics = sorted({m for r in ATT_ROLES.values() for m in r.keys()})
+        elif pg == "CF":
+            role_metrics = sorted({m for r in CF_ROLES.values() for m in r.keys()})
+        else:
+            role_metrics = []
+
+        rows = []
+        for m in role_metrics:
+            raw = prow.get(m, np.nan)
+            pct = prow.get(f"{m} Percentile", np.nan)
+            rows.append([m, raw, pct])
+
+        st.markdown("<div class='section-title'>PLAYER METRICS</div>", unsafe_allow_html=True)
+        st.caption(f"Percentiles computed within minutes pool {minutes_range[0]}–{minutes_range[1]} (by PosGroup).")
+        st.dataframe(
+            pd.DataFrame(rows, columns=["Metric", "Value", "Percentile"]).sort_values("Percentile", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+
+# =========================
+# HEADER
 # =========================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri = img_to_data_uri(FLAG_PATH)
@@ -461,15 +536,6 @@ components.html(header_html, height=350)
 # =========================
 # PERFORMANCE
 # =========================
-st.markdown("""
-<style>
-.section-title{
-  font-size:40px;font-weight:900;letter-spacing:1px;
-  margin-top:26px;margin-bottom:12px;color:#f2f2f2;
-}
-</style>
-""", unsafe_allow_html=True)
-
 st.markdown('<div class="section-title">PERFORMANCE</div>', unsafe_allow_html=True)
 if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
     st.image(PERFORMANCE_IMAGE_PATH, use_container_width=True)
@@ -477,7 +543,7 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================
-# CARD CSS (once)
+# PRO CARD CSS
 # =========================
 st.markdown("""
 <style>
@@ -492,7 +558,7 @@ st.markdown("""
 .pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
 .pro-avatar img{ width:100%; height:100%; object-fit:cover; }
 
-.flagchip{ display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; padding:0; height:auto;}
+.flagchip{ display:inline-flex; align-items:center; gap:6px; }
 .flagchip img{ width:26px; height:18px; border-radius:2px; display:block; }
 
 .chip{ color:#a6a6a6; font-size:15px; line-height:18px; opacity:.92; }
@@ -507,46 +573,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def _age_text(row: pd.Series) -> str:
-    if "Age" in row.index:
-        try:
-            a = int(float(row["Age"]))
-            return f"{a}y.o." if a > 0 else "—"
-        except Exception:
-            return "—"
-    return "—"
-
-def _contract_year(row: pd.Series) -> str:
-    for c in ("Contract expires", "Contract Expires", "Contract", "Contract expiry"):
-        if c in row.index:
-            cy = pd.to_datetime(row.get(c), errors="coerce")
-            return f"{int(cy.year)}" if pd.notna(cy) else "—"
-    return "—"
-
-def _positions_html(pos: str) -> str:
-    raw = (pos or "").strip().upper()
-    tokens = [t for t in re.split(r"[,\s/;]+", raw) if t]
-    seen, ordered = set(), []
-    for t in tokens:
-        if t not in seen:
-            seen.add(t)
-            ordered.append(t)
-    return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
-
 # =========================
 # SQUAD
 # =========================
 st.markdown('<div class="section-title" style="margin-top:30px;">SQUAD</div>', unsafe_allow_html=True)
 
-for i, row in df.iterrows():
+if df_view.empty:
+    st.info("No players match the AGE display filter.")
+    st.stop()
+
+for i, row in df_view.iterrows():
     player = str(row.get("Player", "—"))
     league = str(row.get("League", ""))
     pos = str(row.get("Position", ""))
-    birth = str(row.get("Birth country", "")) if "Birth country" in df.columns else ""
+    birth = str(row.get("Birth country", "")) if "Birth country" in df_view.columns else ""
     foot = _get_foot(row) or "—"
     age_txt = _age_text(row)
     contract_txt = _contract_year(row)
-    mins = int(row.get(mins_col, 0) or 0)
+    mins = int(row.get(mins_col_all, 0) or 0)
 
     roles = row.get("RoleScores", {})
     if not isinstance(roles, dict):
@@ -564,7 +608,6 @@ for i, row in df.iterrows():
     flag = _flag_html(birth)
     pos_html = _positions_html(pos)
 
-    # Render cards with st.markdown (NOT components.html)
     card_html = f"""
     <div class='pro-wrap'>
       <div class='pro-card'>
@@ -588,9 +631,8 @@ for i, row in df.iterrows():
       </div>
     </div>
     """
-    # keep it safe for Streamlit HTML rendering
-    card_html = " ".join(card_html.split())
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.markdown(" ".join(card_html.split()), unsafe_allow_html=True)
+
 
 
 
