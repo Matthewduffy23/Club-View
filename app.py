@@ -855,6 +855,87 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================
+# TEAM NOTES (Manual) — right below the team chart
+# Put this DIRECTLY under the PERFORMANCE image block
+# =========================
+
+def _chip_html(items, color):
+    if not items:
+        return "<span class='chip'>—</span>"
+    spans = [
+        f"<span style='background:{color};color:#111;padding:2px 8px;border-radius:999px;"
+        f"margin:0 8px 8px 0;display:inline-block;font-weight:800;font-size:13px;'>"
+        f"{st.utils.escape_html(t)}</span>"
+        for t in items[:20]
+    ]
+    return " ".join(spans)
+
+def _parse_tags(s: str) -> list[str]:
+    if not s:
+        return []
+    parts = re.split(r"[,\n]+", s.strip())
+    tags = []
+    for p in parts:
+        t = p.strip()
+        if not t:
+            continue
+        tags.append(t)
+    # de-dupe preserve order
+    seen = set()
+    out = []
+    for t in tags:
+        k = t.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(t)
+    return out
+
+TEAM_NOTES_KEY = f"team_notes::{_norm_one(TEAM_NAME)}"
+st.session_state.setdefault(TEAM_NOTES_KEY, {"style": [], "strengths": [], "weaknesses": []})
+
+st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+st.markdown("<div class='section-title' style='margin-top:10px;'>NOTES</div>", unsafe_allow_html=True)
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    style_in = st.text_input("Style (Possession based, pressing, structured)", "", key=f"{TEAM_NOTES_KEY}_style_in")
+    if style_in.strip():
+        st.session_state[TEAM_NOTES_KEY]["style"] += _parse_tags(style_in)
+        st.session_state[TEAM_NOTES_KEY]["style"] = _parse_tags(",".join(st.session_state[TEAM_NOTES_KEY]["style"]))
+        st.session_state[f"{TEAM_NOTES_KEY}_style_in"] = ""
+
+    st.markdown("**Style:**", unsafe_allow_html=True)
+    st.markdown(_chip_html(st.session_state[TEAM_NOTES_KEY]["style"], "#bfdbfe"), unsafe_allow_html=True)
+    if st.button("Clear Style", key=f"{TEAM_NOTES_KEY}_style_clear"):
+        st.session_state[TEAM_NOTES_KEY]["style"] = []
+
+with c2:
+    str_in = st.text_input("Strengths (Chance prevention, Chance Creation, Game Control, Pressing)", "", key=f"{TEAM_NOTES_KEY}_str_in")
+    if str_in.strip():
+        st.session_state[TEAM_NOTES_KEY]["strengths"] += _parse_tags(str_in)
+        st.session_state[TEAM_NOTES_KEY]["strengths"] = _parse_tags(",".join(st.session_state[TEAM_NOTES_KEY]["strengths"]))
+        st.session_state[f"{TEAM_NOTES_KEY}_str_in"] = ""
+
+    st.markdown("**Strengths:**", unsafe_allow_html=True)
+    st.markdown(_chip_html(st.session_state[TEAM_NOTES_KEY]["strengths"], "#a7f3d0"), unsafe_allow_html=True)
+    if st.button("Clear Strengths", key=f"{TEAM_NOTES_KEY}_str_clear"):
+        st.session_state[TEAM_NOTES_KEY]["strengths"] = []
+
+with c3:
+    weak_in = st.text_input("Weaknesses (Finishing, Final 3rd Entries)", "", key=f"{TEAM_NOTES_KEY}_weak_in")
+    if weak_in.strip():
+        st.session_state[TEAM_NOTES_KEY]["weaknesses"] += _parse_tags(weak_in)
+        st.session_state[TEAM_NOTES_KEY]["weaknesses"] = _parse_tags(",".join(st.session_state[TEAM_NOTES_KEY]["weaknesses"]))
+        st.session_state[f"{TEAM_NOTES_KEY}_weak_in"] = ""
+
+    st.markdown("**Weaknesses:**", unsafe_allow_html=True)
+    st.markdown(_chip_html(st.session_state[TEAM_NOTES_KEY]["weaknesses"], "#fecaca"), unsafe_allow_html=True)
+    if st.button("Clear Weaknesses", key=f"{TEAM_NOTES_KEY}_weak_clear"):
+        st.session_state[TEAM_NOTES_KEY]["weaknesses"] = []
+
+
+# =========================
 # SQUAD FILTERS (moved ABOVE Pro Layout section)
 # =========================
 st.markdown("<div class='section-title' style='margin-top:10px;'>SQUAD</div>", unsafe_allow_html=True)
