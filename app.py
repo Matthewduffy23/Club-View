@@ -656,7 +656,17 @@ if "Age" in df_disp.columns:
     df_disp = df_disp[(df_disp["Age_num"].fillna(-1) >= age_range[0]) & (df_disp["Age_num"].fillna(999) <= age_range[1])]
 
 if visa_only and "Birth country" in df_disp.columns:
-    df_disp = df_disp[_norm(df_disp["Birth country"].astype(str)).ne("china pr")]
+    bc = (
+        df_disp["Birth country"]
+        .astype(str)
+        .fillna("")
+        .str.lower()
+        .str.replace(r"[^a-z\s]", "", regex=True)  # drop punctuation like dots
+        .str.strip()
+        .str.replace(r"\s+", " ", regex=True)     # collapse spaces
+    )
+    df_disp = df_disp[bc.ne("china pr")]
+
 
 # Sort minutes DESC
 df_disp = df_disp.sort_values(mins_col, ascending=False).reset_index(drop=True)
