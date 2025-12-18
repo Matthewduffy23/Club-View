@@ -324,68 +324,150 @@ def _positions_html(pos: str) -> str:
             ordered.append(t)
     return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
 
-# =========================
-# INDIVIDUAL METRICS SECTIONS (by PosGroup)
-# =========================
 def metric_sections_for_group(g: str):
-    # label, metric-col
+    g = (g or "").strip().upper()
+
+    # ========== GOALKEEPER ==========
     if g == "GK":
         return {
-            "KEEPING": [
-                ("Conceded (per 90)", "Conceded goals per 90"),
-                ("Shots Against (per 90)", "Shots against per 90"),
-                ("Save Rate %", "Save rate, %"),
-                ("xG Against (per 90)", "xG against per 90"),
-                ("Prevented Goals", "Prevented goals"),
-                ("Prevented (per 90)", "Prevented goals per 90"),
-                ("Exits (per 90)", "Exits per 90"),
+            "GOALKEEPING": [
+                ("Exits", "Exits per 90"),
+                ("Goals Prevented", "Prevented goals per 90"),
+                ("Goals Conceded", "Conceded goals per 90"),   # LOWER IS BETTER (inverted via LOWER_BETTER)
+                ("Save Rate", "Save rate, %"),
+                ("Shots Against", "Shots against per 90"),
+                ("xG Against", "xG against per 90"),
             ],
-            "DISTRIBUTION": [
-                ("Passes (per 90)", "Passes per 90"),
-                ("Pass Accuracy %", "Accurate passes, %"),
-                ("Long Passes (per 90)", "Long passes per 90"),
-                ("Long Pass Accuracy %", "Accurate long passes, %"),
-            ]
+            "POSSESSION": [
+                ("Passes", "Passes per 90"),
+                ("Passing Accuracy %", "Accurate passes, %"),
+                ("Long Passes", "Long passes per 90"),
+                ("Long Passing %", "Accurate long passes, %"),
+            ],
         }
 
-    # common outfield sections
-    ATT = [
-        ("Non-pen Goals (per 90)", "Non-penalty goals per 90"),
-        ("xG (per 90)", "xG per 90"),
-        ("xA (per 90)", "xA per 90"),
-        ("Shots (per 90)", "Shots per 90"),
-        ("Touches in Box (per 90)", "Touches in box per 90"),
-        ("Crosses (per 90)", "Crosses per 90"),
-        ("Cross Accuracy %", "Accurate crosses, %"),
-    ]
-    DEF = [
-        ("Def Duels (per 90)", "Defensive duels per 90"),
-        ("Def Duel Win %", "Defensive duels won, %"),
-        ("Aerial Duels (per 90)", "Aerial duels per 90"),
-        ("Aerial Win %", "Aerial duels won, %"),
-        ("Shots Blocked (per 90)", "Shots blocked per 90"),
-        ("PAdj Interceptions", "PAdj Interceptions"),
-    ]
-    POS = [
-        ("Passes (per 90)", "Passes per 90"),
-        ("Pass Accuracy %", "Accurate passes, %"),
-        ("Forward Passes (per 90)", "Forward passes per 90"),
-        ("Forward Pass Acc %", "Accurate forward passes, %"),
-        ("Long Passes (per 90)", "Long passes per 90"),
-        ("Long Pass Acc %", "Accurate long passes, %"),
-        ("Prog Passes (per 90)", "Progressive passes per 90"),
-        ("Prog Pass Acc %", "Accurate progressive passes, %"),
-        ("Prog Runs (per 90)", "Progressive runs per 90"),
-        ("Dribbles (per 90)", "Dribbles per 90"),
-        ("Dribble Success %", "Successful dribbles, %"),
-        ("Deep Completions", "Deep completions per 90"),
-        ("Key Passes", "Key passes per 90"),
-        ("Smart Passes", "Smart passes per 90"),
-        ("To Final 3rd (per 90)", "Passes to final third per 90"),
-        ("Final 3rd Acc %", "Accurate passes to final third, %"),
-        ("To Pen Area (per 90)", "Passes to penalty area per 90"),
-        ("Pen Area Acc %", "Accurate passes to penalty area, %"),
-    ]
+    # ========== CENTER BACKS ==========
+    if g == "CB":
+        return {
+            "ATTACKING": [
+                ("Goals: Non-Penalty", "Non-penalty goals per 90"),
+                ("xG", "xG per 90"),
+                ("Offensive Duels", "Offensive duels per 90"),
+                ("Offensive Duel Success %", "Offensive duels won, %"),
+                ("Progressive Runs", "Progressive runs per 90"),
+            ],
+            "DEFENSIVE": [
+                ("Aerial Duels", "Aerial duels per 90"),
+                ("Aerial Duel Success %", "Aerial duels won, %"),
+                ("Defensive Duels", "Defensive duels per 90"),
+                ("Defensive Duel Success %", "Defensive duels won, %"),
+                ("PAdj Interceptions", "PAdj Interceptions"),
+                ("Shots Blocked", "Shots blocked per 90"),
+                ("Successful Defensive Actions", "Successful defensive actions per 90"),
+            ],
+            "POSSESSION": [
+                ("Accelerations", "Accelerations per 90"),
+                ("Dribbles", "Dribbles per 90"),
+                ("Dribbling Success %", "Successful dribbles, %"),
+                ("Forward Passes", "Forward passes per 90"),
+                ("Forward Passing Accuracy %", "Accurate forward passes, %"),
+                ("Long Passes", "Long passes per 90"),
+                ("Long Passing Success %", "Accurate long passes, %"),
+                ("Passes", "Passes per 90"),
+                ("Passing Accuracy %", "Accurate passes, %"),
+                ("Passes to Final 3rd", "Passes to final third per 90"),
+                ("Passes to Final 3rd Success %", "Accurate passes to final third, %"),
+                ("Progessive Passes", "Progressive passes per 90"),
+                ("Progessive Passing Success %", "Accurate progressive passes, %"),
+            ],
+        }
+
+    # ========== STRIKER (CF) ==========
+    if g == "CF":
+        return {
+            "ATTACKING": [
+                ("Crosses", "Crosses per 90"),
+                ("Crossing Accuracy %", "Accurate crosses, %"),
+                ("Goals: Non-Penalty", "Non-penalty goals per 90"),
+                ("xG", "xG per 90"),
+                ("Conversion Rate %", "Goal conversion, %"),
+                ("Header Goals", "Head goals per 90"),
+                ("Expected Assists", "xA per 90"),
+                ("Offensive Duels", "Offensive duels per 90"),
+                ("Offensive Duel Success %", "Offensive duels won, %"),
+                ("Progressive Runs", "Progressive runs per 90"),
+                ("Shots", "Shots per 90"),
+                ("Shooting Accuracy %", "Shots on target, %"),
+                ("Touches in Opposition Box", "Touches in box per 90"),
+            ],
+            "DEFENSIVE": [
+                ("Aerial Duels", "Aerial duels per 90"),
+                ("Aerial Duel Success %", "Aerial duels won, %"),
+                ("Defensive Duels", "Defensive duels per 90"),
+                ("Defensive Duel Success %", "Defensive duels won, %"),
+                ("PAdj. Interceptions", "PAdj Interceptions"),
+                ("Successful Def. Actions", "Successful defensive actions per 90"),
+            ],
+            "POSSESSION": [
+                ("Deep Completions", "Deep completions per 90"),
+                ("Dribbles", "Dribbles per 90"),
+                ("Dribbling Success %", "Successful dribbles, %"),
+                ("Key Passes", "Key passes per 90"),
+                ("Passes", "Passes per 90"),
+                ("Passing Accuracy %", "Accurate passes, %"),
+                ("Passes to Penalty Area", "Passes to penalty area per 90"),
+                ("Passes to Penalty Area %", "Accurate passes to penalty area, %"),
+                ("Smart Passes", "Smart passes per 90"),
+            ],
+        }
+
+    # ========== FULLBACKS + CENTRAL MIDFIELD + ATTACKERS (same) ==========
+    # Covers FB / CM / ATT plus any fallback (OTHER)
+    return {
+        "ATTACKING": [
+            ("Crosses", "Crosses per 90"),
+            ("Crossing %", "Accurate crosses, %"),
+            ("Goals: Non-Penalty", "Non-penalty goals per 90"),
+            ("xG", "xG per 90"),
+            ("Expected Assists", "xA per 90"),
+            ("Offensive Duels", "Offensive duels per 90"),
+            ("Offensive Duel %", "Offensive duels won, %"),
+            ("Shots", "Shots per 90"),
+            ("Shooting %", "Shots on target, %"),
+            ("Touches in box", "Touches in box per 90"),
+        ],
+        "DEFENSIVE": [
+            ("Aerial Duels", "Aerial duels per 90"),
+            ("Aerial Win %", "Aerial duels won, %"),
+            ("Defensive Duels", "Defensive duels per 90"),
+            ("Defensive Duel %", "Defensive duels won, %"),
+            ("PAdj Interceptions", "PAdj Interceptions"),
+            ("Shots blocked", "Shots blocked per 90"),
+            ("Succ. def acts", "Successful defensive actions per 90"),
+        ],
+        "POSSESSION": [
+            ("Accelerations", "Accelerations per 90"),
+            ("Deep completions", "Deep completions per 90"),
+            ("Dribbles", "Dribbles per 90"),
+            ("Dribbling %", "Successful dribbles, %"),
+            ("Forward Passes", "Forward passes per 90"),
+            ("Forward Pass %", "Accurate forward passes, %"),
+            ("Key passes", "Key passes per 90"),
+            ("Long Passes", "Long passes per 90"),
+            ("Long Pass %", "Accurate long passes, %"),
+            ("Passes", "Passes per 90"),
+            ("Passing %", "Accurate passes, %"),
+            ("Passes to F3rd", "Passes to final third per 90"),
+            ("Passes F3rd %", "Accurate passes to final third, %"),
+            ("Passes Pen-Area", "Passes to penalty area per 90"),
+            ("Pass Pen-Area %", "Accurate passes to penalty area, %"),
+            ("Progessive Passes", "Progressive passes per 90"),
+            ("Prog Pass %", "Accurate progressive passes, %"),
+            ("Progressive Runs", "Progressive runs per 90"),
+            ("Smart Passes", "Smart passes per 90"),
+        ],
+    }
+
 
     # slim per group
     if g == "CB":
@@ -693,32 +775,60 @@ for i, row in df_view.iterrows():
 
     # --- Individual player metrics dropdown (FROM CARD) ---
     exp_key = f"ind_metrics_{i}_{player}_{mins}"
-    with st.expander("Individual Metrics", expanded=False):
-        g = str(row.get("PosGroup", "OTHER"))
-        sections = metric_sections_for_group(g)
+with st.expander("Individual Metrics", expanded=False):
 
-        def _sec_html(title, pairs):
-            rows_html = []
-            for lab, met in pairs:
-                if met not in row.index:
-                    continue
-                badge = metric_badge_html(row, met)
-                rows_html.append(
-                    f"<div class='m-row'>"
-                    f"<div class='m-label'>{lab}</div>"
-                    f"{badge}"
-                    f"</div>"
-                )
-            if not rows_html:
-                rows_html = [f"<div class='m-row'><div class='m-label'>No metrics found for this section.</div><div></div></div>"]
-            return f"<div class='m-sec'><div class='m-title'>{title}</div>{''.join(rows_html)}</div>"
+    def pct_of(met: str) -> float:
+        col = f"{met} Percentile"
+        v = row.get(col, 0)
+        try:
+            return float(np.nan_to_num(v, nan=0.0))
+        except Exception:
+            return 0.0
 
-        sec_blocks = []
-        for title, pairs in sections.items():
-            sec_blocks.append(_sec_html(title, pairs))
+    def raw_of(met: str) -> str:
+        if met not in row.index:
+            return "—"
+        v = row.get(met, np.nan)
+        try:
+            v = float(v)
+        except Exception:
+            return str(v) if v is not None else "—"
+        if np.isnan(v):
+            return "—"
+        # formatting: % columns cleaner
+        if "%" in met:
+            return f"{v:.0f}%"
+        return f"{v:.2f}"
 
-        st.markdown("<div class='metrics-grid'>" + "".join(sec_blocks) + "</div>", unsafe_allow_html=True)
-        st.caption(f"Percentiles are computed within minutes pool {minutes_range[0]}–{minutes_range[1]} (by PosGroup).")
+    g = str(row.get("PosGroup", "OTHER")).strip().upper()
+    sections = metric_sections_for_group(g)
+
+    def _sec_html(title, pairs):
+        rows_html = []
+        for lab, met in pairs:
+            if met not in row.index:
+                continue
+
+            p = _pro_show99(pct_of(met))
+            badge = f"<div class='m-badge' style='background:{_pro_rating_color(p)}'>{_fmt2(p)}</div>"
+            raw = raw_of(met)
+
+            rows_html.append(
+                f"<div class='m-row'>"
+                f"<div class='m-label'>{lab} <span style='opacity:.65'>({raw})</span></div>"
+                f"{badge}"
+                f"</div>"
+            )
+
+        if not rows_html:
+            rows_html = [f"<div class='m-row'><div class='m-label'>No metrics found for this section.</div><div></div></div>"]
+
+        return f"<div class='m-sec'><div class='m-title'>{title}</div>{''.join(rows_html)}</div>"
+
+    sec_blocks = [_sec_html(title, pairs) for title, pairs in sections.items()]
+    st.markdown("<div class='metrics-grid'>" + "".join(sec_blocks) + "</div>", unsafe_allow_html=True)
+    st.caption(f"Percentiles are within minutes pool {minutes_range[0]}–{minutes_range[1]} (by PosGroup).")
+
 
 
 
