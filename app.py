@@ -1,6 +1,6 @@
 import os
+import base64
 import streamlit as st
-from PIL import Image
 
 st.set_page_config(page_title="Club View", layout="wide")
 
@@ -20,6 +20,7 @@ LEAGUE_POSITION = 2
 
 CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"
 FLAG_PATH = "images/china.png"
+
 PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
 # =========================
 
@@ -39,69 +40,87 @@ def score_color(score: int) -> str:
             return color
     return COLORS[-1][1]
 
-def load_img(path: str):
-    return Image.open(path) if path and os.path.exists(path) else None
+def img_to_data_uri(path: str) -> str:
+    """Embed local image as data URI so layout is pure HTML/CSS (no Streamlit image blocks)."""
+    if not path or not os.path.exists(path):
+        return ""
+    ext = os.path.splitext(path)[1].lower().replace(".", "")
+    if ext == "jpg":
+        ext = "jpeg"
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/{ext};base64,{b64}"
 
-crest = load_img(CREST_PATH)
-flag = load_img(FLAG_PATH)
-perf = load_img(PERFORMANCE_IMAGE_PATH)
+crest_uri = img_to_data_uri(CREST_PATH)
+flag_uri = img_to_data_uri(FLAG_PATH)
 
-# --- Dark theme + Swansea-like card layout ---
+# ---------- GLOBAL DARK STYLING ----------
 st.markdown(
     """
     <style>
       .stApp { background:#0e0e0f; color:#f2f2f2; }
-      .block-container { padding-top:1.4rem; padding-bottom:2rem; max-width:1100px; }
+      .block-container { padding-top:1.4rem; padding-bottom:2rem; max-width:1150px; }
 
+      /* Card */
       .club-card{
         background:#1c1c1d;
         border:1px solid #2a2a2b;
         border-radius:20px;
-        padding:22px;
+        padding:24px;
       }
 
-      .grid{
+      /* Two-column header layout (like Swansea) */
+      .header-grid{
         display:grid;
-        grid-template-columns: 240px 1fr;
-        gap: 22px;
-        align-items: stretch; /* makes crest tile full height */
+        grid-template-columns: 220px 1fr;
+        gap: 26px;
+        align-items: start;
       }
 
+      /* Crest tile on the left */
       .crest-tile{
+        width: 220px;
+        height: 220px;
         background:#121213;
         border:1px solid #2a2a2b;
         border-radius:20px;
-        height: 100%;
-        min-height: 230px; /* baseline height */
         display:flex;
         align-items:center;
         justify-content:center;
-        padding:18px;
+        overflow:hidden;
+      }
+      .crest-img{
+        width: 180px;
+        height: 180px;
+        object-fit: contain;
+        display:block;
       }
 
-      .right{
-        display:flex;
-        flex-direction:column;
-        justify-content:flex-start;
-        gap: 14px;
-        padding-top: 6px;
-      }
-
+      /* Right side */
       .team-title{
         font-size:56px;
         font-weight:800;
         margin:0;
         line-height:1.05;
-        letter-spacing:.2px;
+        color:#f2f2f2;
       }
 
-      .metric-row{
+      /* Rating rows */
+      .ratings-col{
+        display:flex;
+        flex-direction:column;
+        gap:16px;
+        margin-top:14px;
+      }
+
+      .metric{
         display:flex;
         align-items:center;
         gap: 14px;
         flex-wrap: wrap;
       }
 
+      /* small pill: number only */
       .pill{
         width:60px;
         height:46px;
@@ -123,24 +142,46 @@ st.markdown(
         line-height:1;
       }
 
+      /* second row for ATT/MID/DEF */
+      .triplet{
+        display:flex;
+        gap: 30px;
+        flex-wrap: wrap;
+        align-items:center;
+      }
+
+      /* League line */
       .league-row{
         display:flex;
         align-items:center;
         gap: 12px;
-        margin-top: 2px;
+        margin-top: 14px;
       }
 
+      .flag-img{
+        width: 56px;
+        height: 40px;
+        object-fit: cover;
+        border-radius: 6px;
+        display:block;
+      }
+
+      /* smaller league font than title */
       .league-text{
-        font-size:32px;   /* smaller like Swansea */
-        font-weight:650;
+        font-size:34px;
+        font-weight:700;
         color:#d2d2d4;
         line-height:1;
       }
 
-      .info-row{
+      /* Info on different rows */
+      .info{
+        margin-top: 14px;
+        display:flex;
+        flex-direction:column;
+        gap: 6px;
         font-size:18px;
         color:#b0b0b3;
-        margin-top: 2px;
       }
 
       h2 { margin-top: 36px; font-size: 34px; }
@@ -149,76 +190,72 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-def metric(value: int, text: str) -> str:
-    return f"""
-      <div class="metric-row">
-        <div class="pill" style="background:{score_color(value)}">{value}</div>
-        <div class="label">{text}</div>
-      </div>
-    """
+# ---------- HEADER (pure HTML so it cannot break into top/bottom) ----------
+header_html = f"""
+<div class="club-card">
+  <div class="header-grid">
 
-# ---------------- Header Card ----------------
-st.markdown('<div class="club-card">', unsafe_allow_html=True)
-st.markdown('<div class="grid">', unsafe_allow_html=True)
+    <div class="crest-tile">
+      {"<img class='crest-img' src='"+crest_uri+"'/>" if crest_uri else ""}
+    </div>
 
-# Left crest tile
-st.markdown('<div class="crest-tile">', unsafe_allow_html=True)
-if crest:
-    st.image(crest, width=170)
-st.markdown('</div>', unsafe_allow_html=True)
+    <div>
+      <div class="team-title">{TEAM_NAME}</div>
 
-# Right content (stacked like Swansea)
-st.markdown('<div class="right">', unsafe_allow_html=True)
+      <div class="ratings-col">
 
-st.markdown(f'<div class="team-title">{TEAM_NAME}</div>', unsafe_allow_html=True)
+        <!-- Overall row -->
+        <div class="metric">
+          <div class="pill" style="background:{score_color(OVERALL)}">{OVERALL}</div>
+          <div class="label">Overall</div>
+        </div>
 
-# Overall ABOVE the other three
-st.markdown(metric(OVERALL, "Overall"), unsafe_allow_html=True)
+        <!-- ATT / MID / DEF row -->
+        <div class="triplet">
+          <div class="metric">
+            <div class="pill" style="background:{score_color(ATT)}">{ATT}</div>
+            <div class="label">ATT</div>
+          </div>
 
-# ATT / MID / DEF row
-st.markdown(
-    f"""
-    <div class="metric-row" style="gap:26px;">
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div class="pill" style="background:{score_color(ATT)}">{ATT}</div>
-        <div class="label">ATT</div>
-      </div>
+          <div class="metric">
+            <div class="pill" style="background:{score_color(MID)}">{MID}</div>
+            <div class="label">MID</div>
+          </div>
 
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div class="pill" style="background:{score_color(MID)}">{MID}</div>
-        <div class="label">MID</div>
-      </div>
+          <div class="metric">
+            <div class="pill" style="background:{score_color(DEF)}">{DEF}</div>
+            <div class="label">DEF</div>
+          </div>
+        </div>
 
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div class="pill" style="background:{score_color(DEF)}">{DEF}</div>
-        <div class="label">DEF</div>
+        <!-- Flag + League below badges -->
+        <div class="league-row">
+          {"<img class='flag-img' src='"+flag_uri+"'/>" if flag_uri else ""}
+          <div class="league-text">{LEAGUE_TEXT}</div>
+        </div>
+
+        <!-- Info on different rows -->
+        <div class="info">
+          <div><b>Average Age:</b> {AVG_AGE:.2f}</div>
+          <div><b>League Position:</b> {LEAGUE_POSITION}</div>
+        </div>
+
       </div>
     </div>
-    """,
-    unsafe_allow_html=True
-)
 
-# Flag & League BELOW the badge rows
-st.markdown('<div class="league-row">', unsafe_allow_html=True)
-if flag:
-    st.image(flag, width=56)
-st.markdown(f'<div class="league-text">{LEAGUE_TEXT}</div>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+  </div>
+</div>
+"""
 
-# Info on different rows
-st.markdown(f'<div class="info-row"><b>Average Age:</b> {AVG_AGE:.2f}</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="info-row"><b>League Position:</b> {LEAGUE_POSITION}</div>', unsafe_allow_html=True)
+st.markdown(header_html, unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)  # right
-st.markdown('</div>', unsafe_allow_html=True)  # grid
-st.markdown('</div>', unsafe_allow_html=True)  # club-card
-
-# ---------------- Performance ----------------
+# ---------- PERFORMANCE ----------
 st.markdown("## Performance")
-if perf:
-    st.image(perf, use_container_width=True)
+if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
+    st.image(PERFORMANCE_IMAGE_PATH, use_container_width=True)
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
+
 
 
 
