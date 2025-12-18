@@ -2,7 +2,6 @@ import os
 import re
 import base64
 import unicodedata
-import textwrap
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -14,9 +13,9 @@ import streamlit.components.v1 as components
 CSV_PATH = "Chinaall.csv"
 TEAM_NAME = "Chengdu Rongcheng"
 
-CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"   # adjust if needed
-FLAG_PATH = "images/china.png"                        # adjust if needed
-PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"     # adjust if needed
+CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"
+FLAG_PATH = "images/china.png"
+PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
 
 # Manual header inputs (static)
 OVERALL = 88
@@ -84,6 +83,7 @@ TWEMOJI_SPECIAL = {
     "sct":"1f3f4-e0067-e0062-e0073-e0063-e0074-e007f",
     "wls":"1f3f4-e0067-e0062-e0077-e006c-e0073-e007f",
 }
+
 COUNTRY_TO_CC = {
     "china":"cn",
     "china pr":"cn",  # ✅ requested
@@ -143,7 +143,7 @@ def _get_foot(row: pd.Series) -> str:
     return ""
 
 # =========================================================
-# ROLE DEFINITIONS (weights from you)
+# ROLE DEFINITIONS
 # =========================================================
 CB_ROLES = {
     "Ball Playing CB": {"Passes per 90":2,"Accurate passes, %":2,"Forward passes per 90":2,"Accurate forward passes, %":2,
@@ -194,27 +194,26 @@ GK_ROLES = {
 LOWER_BETTER = {"Conceded goals per 90"}
 
 # =========================================================
-# POSITION GROUPS (ATT fix = primary position token)
+# POSITION GROUPS (ATT fix = Primary Position)
 # =========================================================
-def pos_group_from_position(pos: str) -> str:
-    p = str(pos or "").strip().upper()
-    primary = re.split(r"\s*[,/;]\s*", p)[0].strip() if p else ""
-    if primary.startswith("GK"):
+def pos_group_from_primary(primary: str) -> str:
+    p = str(primary or "").strip().upper()
+    if p.startswith("GK"):
         return "GK"
-    if primary.startswith(("LCB","RCB","CB")):
+    if p.startswith(("LCB","RCB","CB")):
         return "CB"
-    if primary.startswith(("RB","RWB","LB","LWB")):
+    if p.startswith(("RB","RWB","LB","LWB")):
         return "FB"
-    if primary.startswith(("LCMF","RCMF","LDMF","RDMF","DMF","CMF")):
+    if p.startswith(("LCMF","RCMF","LDMF","RDMF","DMF","CMF")):
         return "CM"
-    if primary in {"RW","LW","LWF","RWF","AMF","LAMF","RAMF"}:
+    if p in {"RW","LW","LWF","RWF","AMF","LAMF","RAMF"}:
         return "ATT"
-    if primary.startswith("CF"):
+    if p.startswith("CF"):
         return "CF"
     return "OTHER"
 
 # =========================================================
-# ROLE SCORING
+# SCORING
 # =========================================================
 def weighted_role_score(row: pd.Series, weights: dict[str, float]) -> int:
     num, den = 0.0, 0.0
@@ -242,7 +241,7 @@ def compute_role_scores_for_row(row: pd.Series) -> dict[str, int]:
         return {k: weighted_role_score(row, w) for k,w in FB_ROLES.items()}
     if g == "CM":
         roles = {k: weighted_role_score(row, w) for k,w in CM_ROLES.items()}
-        return dict(sorted(roles.items(), key=lambda x:x[1], reverse=True)[:3])  # top 3 only
+        return dict(sorted(roles.items(), key=lambda x:x[1], reverse=True)[:3])
     if g == "ATT":
         return {k: weighted_role_score(row, w) for k,w in ATT_ROLES.items()}
     if g == "CF":
@@ -265,9 +264,6 @@ def img_to_data_uri(path: str) -> str:
         b64 = base64.b64encode(f.read()).decode("utf-8")
     return f"data:image/{ext};base64,{b64}"
 
-# =========================================================
-# Percentiles from raw metrics (within minutes pool + PosGroup)
-# =========================================================
 def metrics_used_by_roles() -> set[str]:
     rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
     s = set()
@@ -280,42 +276,30 @@ def add_percentiles(df: pd.DataFrame, minutes_col: str, pool_min: int, pool_max:
     used = metrics_used_by_roles()
     out = df.copy()
 
-    # numeric
-    for m in used:
-        if m in out.columns:
-            out[m] = pd.to_numeric(out[m], errors="coerce")
-
     out[minutes_col] = pd.to_numeric(out[minutes_col], errors="coerce").fillna(0)
-
-    # minutes pool for percentile calculation (requested)
     pool = out[(out[minutes_col] >= pool_min) & (out[minutes_col] <= pool_max)].copy()
 
-    # write default 0 percentiles for all rows
+    # default all percentiles to 0
     for m in used:
         out[f"{m} Percentile"] = 0.0
 
     if pool.empty:
         return out
 
-    # compute within pool by PosGroup
     for m in used:
         if m not in pool.columns:
             continue
+        pool[m] = pd.to_numeric(pool[m], errors="coerce")
         pct = pool.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100)
         if m in LOWER_BETTER:
             pct = 100 - pct
         pool[f"{m} Percentile"] = pct.fillna(0)
 
-    # merge back percentiles for those in pool; keep others at 0
-    key_cols = ["Player", "Team", "League", "Position", minutes_col]
-    key_cols = [c for c in key_cols if c in out.columns and c in pool.columns]
+    # merge back by stable key
+    key_cols = [c for c in ["Player","Team","League","Position",minutes_col] if c in out.columns and c in pool.columns]
     if key_cols:
-        pool_keys = pool[key_cols].copy()
-        for m in used:
-            colp = f"{m} Percentile"
-            if colp in pool.columns:
-                pool_keys[colp] = pool[colp].values
-        out = out.merge(pool_keys, on=key_cols, how="left", suffixes=("", "_POOL"))
+        keep = pool[key_cols + [f"{m} Percentile" for m in used if f"{m} Percentile" in pool.columns]].copy()
+        out = out.merge(keep, on=key_cols, how="left", suffixes=("", "_POOL"))
         for m in used:
             c = f"{m} Percentile"
             cp = f"{c}_POOL"
@@ -326,7 +310,7 @@ def add_percentiles(df: pd.DataFrame, minutes_col: str, pool_min: int, pool_max:
     return out
 
 # =========================================================
-# Individual metrics sections by position group (your exact order + labels)
+# Individual metrics sections (your exact order)
 # =========================================================
 def metric_sections_for_group(g: str):
     g = (g or "").strip().upper()
@@ -422,7 +406,7 @@ def metric_sections_for_group(g: str):
             ],
         }
 
-    # FB / CM / ATT / OTHER
+    # FB / CM / ATT / OTHER (your “ALL” block)
     return {
         "ATTACKING": [
             ("Crosses", "Crosses per 90"),
@@ -469,7 +453,7 @@ def metric_sections_for_group(g: str):
     }
 
 # =========================================================
-# STREAMLIT PAGE (font back + compact header)
+# PAGE SETUP (restore pro font smoothing + compact width)
 # =========================================================
 st.set_page_config(page_title="Club View", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
@@ -479,21 +463,15 @@ html, body, .block-container *{
   font-feature-settings:"liga","kern","tnum"; font-variant-numeric:tabular-nums;
 }
 .stApp { background:#0e0e0f; color:#f2f2f2; }
-.block-container { padding-top:1.0rem; padding-bottom:2rem; max-width:980px; }  /* ✅ less wide / more compact */
+.block-container { padding-top:1.15rem; padding-bottom:2rem; max-width:1150px; }  /* back to your earlier feel */
 header, footer { visibility:hidden; }
 
 .section-title{
   font-size:40px;font-weight:900;letter-spacing:1px;
-  margin-top:22px;margin-bottom:10px;color:#f2f2f2;
+  margin-top:26px;margin-bottom:12px;color:#f2f2f2;
 }
 
-/* Compact controls under SQUAD */
-.filters-wrap{
-  background:#121213; border:1px solid #2a2a2b; border-radius:16px;
-  padding:12px 14px; margin:10px 0 14px 0;
-}
-
-/* Pro card + metrics CSS */
+/* card + metrics (same) */
 .pro-wrap{ display:flex; justify-content:center; }
 .pro-card{
   position:relative; width:min(720px,98%); display:grid; grid-template-columns:96px 1fr 64px;
@@ -505,26 +483,26 @@ header, footer { visibility:hidden; }
 .pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
 .pro-avatar img{ width:100%; height:100%; object-fit:cover; }
 
-.flagchip{ display:inline-flex; align-items:center; gap:6px; }
+.flagchip{ display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; padding:0; height:auto;}
 .flagchip img{ width:26px; height:18px; border-radius:2px; display:block; }
 
-.chip{ color:#a6a6a6; font-size:15px; line-height:18px; opacity:.92; }
+.chip{ background:transparent; color:#a6a6a6; border:none; padding:0; border-radius:0; font-size:15px; line-height:18px; opacity:.92; }
 .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:2px 0; }
 .leftrow1{ margin-top:6px; } .leftrow-foot{ margin-top:2px; } .leftrow-contract{ margin-top:6px; }
 
-.pill{ padding:2px 6px; min-width:36px; border-radius:6px; font-weight:900; font-size:18px; line-height:1; color:#0b0d12; text-align:center; }
+.pill{ padding:2px 6px; min-width:36px; border-radius:6px; font-weight:900; font-size:18px; line-height:1; color:#0b0d12; text-align:center; display:inline-block; }
 .name{ font-weight:950; font-size:22px; color:#e8ecff; margin-bottom:6px; letter-spacing:.2px; line-height:1.15; }
 .sub{ color:#a8b3cf; font-size:15px; opacity:.9; }
+
 .postext{ font-weight:800; font-size:14.5px; letter-spacing:.2px; margin-right:10px; }
 .rank{ position:absolute; top:10px; right:14px; color:#b7bfe1; font-weight:900; font-size:18px; }
 .teamline{ color:#dbe3ff; font-size:14px; font-weight:700; margin-top:6px; letter-spacing:.05px; opacity:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-/* Individual metrics */
 .m-sec{ background:#121621; border:1px solid #242b3b; border-radius:16px; padding:10px 12px; }
 .m-title{ color:#e8ecff; font-weight:800; letter-spacing:.02em; margin:4px 0 10px 0; }
 .m-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 8px; border-radius:10px; }
 .m-label{ color:#c9d3f2; font-size:15.5px; letter-spacing:.1px; flex:1 1 auto; }
-.m-badge{ flex:0 0 auto; min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:800; font-size:18px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); box-shadow:none; }
+.m-badge{ flex:0 0 auto; min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:900; font-size:18px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); box-shadow:none; }
 .metrics-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
 @media (min-width: 720px){ .metrics-grid{ grid-template-columns:repeat(3,1fr);} }
 </style>
@@ -546,67 +524,65 @@ if missing:
     st.stop()
 
 mins_col = detect_minutes_col(df_all)
-
-# Standardize types
-df_all["Position"] = df_all["Position"].astype(str)
-df_all["Primary Position"] = df_all["Position"].astype(str).str.split(",").str[0].str.strip().str.upper()
-df_all["PosGroup"] = df_all["Position"].apply(pos_group_from_position)
-
 df_all[mins_col] = pd.to_numeric(df_all[mins_col], errors="coerce").fillna(0)
 
+df_all["Position"] = df_all["Position"].astype(str)
+df_all["Primary Position"] = df_all["Position"].astype(str).str.split(",").str[0].str.strip().str.upper()
+df_all["PosGroup"] = df_all["Primary Position"].apply(pos_group_from_primary)
+
 # =========================================================
-# HEADER (compact + less wide; single components iframe is fine)
+# HEADER (more compact on mobile; single iframe is fine)
 # =========================================================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri = img_to_data_uri(FLAG_PATH)
 
 header_html = f"""
-<div style="background:#1c1c1d;border:1px solid #2a2a2b;border-radius:18px;padding:16px;">
-  <div style="display:grid;grid-template-columns:160px 1fr;gap:14px;align-items:start;">
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      <div style="width:160px;height:140px;background:#121213;border:1px solid #2a2a2b;border-radius:16px;
+<div style="background:#1c1c1d;border:1px solid #2a2a2b;border-radius:20px;padding:18px;">
+  <div style="display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start;">
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="width:200px;height:170px;background:#121213;border:1px solid #2a2a2b;border-radius:18px;
                   display:flex;align-items:center;justify-content:center;overflow:hidden;">
-        {f"<img src='{crest_uri}' style='width:120px;height:120px;object-fit:contain;' />" if crest_uri else ""}
+        {f"<img src='{crest_uri}' style='width:150px;height:150px;object-fit:contain;' />" if crest_uri else ""}
       </div>
-      <div style="display:flex;align-items:center;gap:10px;padding-left:2px;">
-        {f"<img src='{flag_uri}' style='width:44px;height:32px;object-fit:cover;border-radius:6px;' />" if flag_uri else ""}
-        <div style="font-size:18px;font-weight:750;color:#d2d2d4;line-height:1;">{LEAGUE_TEXT}</div>
+      <div style="display:flex;align-items:center;gap:10px;padding-left:4px;">
+        {f"<img src='{flag_uri}' style='width:50px;height:36px;object-fit:cover;border-radius:6px;' />" if flag_uri else ""}
+        <div style="font-size:22px;font-weight:750;color:#d2d2d4;line-height:1;">{LEAGUE_TEXT}</div>
       </div>
     </div>
 
     <div>
-      <div style="font-size:38px;font-weight:900;line-height:1.05;color:#f2f2f2;">{TEAM_NAME}</div>
+      <div style="font-size:46px;font-weight:900;line-height:1.05;color:#f2f2f2;">{TEAM_NAME}</div>
 
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <div style="width:48px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                      font-size:18px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
+          <div style="width:54px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                      font-size:20px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
                       background:{_pro_rating_color(OVERALL)};">{OVERALL}</div>
-          <div style="font-size:22px;font-weight:800;color:#9ea0a6;">Overall</div>
+          <div style="font-size:28px;font-weight:850;color:#9ea0a6;">Overall</div>
         </div>
 
-        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;">
+        <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:center;">
           <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:48px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:18px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
+            <div style="width:54px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                        font-size:20px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
                         background:{_pro_rating_color(ATT_HDR)};">{ATT_HDR}</div>
-            <div style="font-size:22px;font-weight:800;color:#9ea0a6;">ATT</div>
+            <div style="font-size:28px;font-weight:850;color:#9ea0a6;">ATT</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:48px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:18px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
+            <div style="width:54px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                        font-size:20px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
                         background:{_pro_rating_color(MID_HDR)};">{MID_HDR}</div>
-            <div style="font-size:22px;font-weight:800;color:#9ea0a6;">MID</div>
+            <div style="font-size:28px;font-weight:850;color:#9ea0a6;">MID</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:48px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:18px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
+            <div style="width:54px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                        font-size:20px;font-weight:950;color:#111;border:1px solid rgba(0,0,0,.35);
                         background:{_pro_rating_color(DEF_HDR)};">{DEF_HDR}</div>
-            <div style="font-size:22px;font-weight:800;color:#9ea0a6;">DEF</div>
+            <div style="font-size:28px;font-weight:850;color:#9ea0a6;">DEF</div>
           </div>
         </div>
 
-        <div style="margin-top:4px;display:flex;flex-direction:column;gap:4px;font-size:14px;color:#b0b0b3;">
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:5px;font-size:16px;color:#b0b0b3;">
           <div><b>Average Age:</b> {AVG_AGE:.2f}</div>
           <div><b>League Position:</b> {LEAGUE_POSITION}</div>
         </div>
@@ -615,7 +591,7 @@ header_html = f"""
   </div>
 </div>
 """
-components.html(header_html, height=250)
+components.html(header_html, height=320)
 
 # =========================================================
 # PERFORMANCE
@@ -627,47 +603,51 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================================================
-# SQUAD TITLE + FILTERS BELOW IT (as requested)
+# SQUAD + CONTROLS DIRECTLY UNDER IT (NOT ABOVE)
 # =========================================================
-st.markdown('<div class="section-title" style="margin-top:26px;">SQUAD</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title" style="margin-top:30px;">SQUAD</div>', unsafe_allow_html=True)
 
-with st.container():
-    st.markdown('<div class="filters-wrap">', unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns([1.2, 1.2, 1.3])
-    with c1:
-        minutes_range = st.slider(
-            "Minutes (pool + display)",
-            min_value=0, max_value=int(max(5000, df_all[mins_col].max() if len(df_all) else 5000)),
-            value=(500, 5000),
-            step=50
-        )
-    with c2:
-        age_range = st.slider(
-            "Age (display only)",
-            min_value=16, max_value=45, value=(16, 45), step=1
-        )
-    with c3:
-        visa_only = st.checkbox(
-            "Visa players (exclude China PR)",
-            value=False,
-            help="Hides players where Birth country = China PR. Does NOT affect percentile pool."
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
+# Compact controls row
+c1, c2, c3 = st.columns([1.25, 1.25, 1.15])
+with c1:
+    st.caption("Minutes (pool + display)")
+    max_m = int(max(5000, df_all[mins_col].max() if len(df_all) else 5000))
+    minutes_range = st.slider(
+        "Minutes (pool + display)",
+        min_value=0, max_value=max_m,
+        value=(500, 5000),
+        step=50,
+        label_visibility="collapsed",
+    )
+with c2:
+    st.caption("Age (display only)")
+    age_range = st.slider(
+        "Age (display only)",
+        min_value=16, max_value=45,
+        value=(16, 45),
+        step=1,
+        label_visibility="collapsed",
+    )
+with c3:
+    st.caption("Display filter")
+    visa_only = st.checkbox(
+        "Visa players (exclude China PR)",
+        value=False,
+        help="Hides Birth country = China PR. Does NOT affect percentile pool."
+    )
 
 # =========================================================
-# Compute percentiles using minutes pool (affects role scores)
+# Percentiles (pool affected by minutes range)
 # =========================================================
 df_all = add_percentiles(df_all, minutes_col=mins_col, pool_min=minutes_range[0], pool_max=minutes_range[1])
 
-# Team filter (always)
+# Team filter
 df_team = df_all[df_all["Team"].astype(str).str.strip() == TEAM_NAME].copy()
 if df_team.empty:
     st.info(f"No players found for Team = '{TEAM_NAME}'.")
     st.stop()
 
-# Display filtering: minutes + age + optional visa filter
+# Display filters: minutes + age + visa toggle
 df_team[mins_col] = pd.to_numeric(df_team[mins_col], errors="coerce").fillna(0)
 df_disp = df_team[(df_team[mins_col] >= minutes_range[0]) & (df_team[mins_col] <= minutes_range[1])].copy()
 
@@ -678,18 +658,18 @@ if "Age" in df_disp.columns:
 if visa_only and "Birth country" in df_disp.columns:
     df_disp = df_disp[_norm(df_disp["Birth country"].astype(str)).ne("china pr")]
 
-# Sort by minutes DESC
+# Sort minutes DESC
 df_disp = df_disp.sort_values(mins_col, ascending=False).reset_index(drop=True)
 
 if df_disp.empty:
     st.info("No players match the selected display filters.")
     st.stop()
 
-# Role scores (computed from percentiles)
+# Role scores
 df_disp["RoleScores"] = df_disp.apply(compute_role_scores_for_row, axis=1)
 
 # =========================================================
-# helpers
+# Helpers
 # =========================================================
 def _age_text(row: pd.Series) -> str:
     try:
@@ -716,7 +696,7 @@ def _positions_html(pos: str) -> str:
     return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
 
 # =========================================================
-# Render cards + per-card dropdown (Individual Metrics)
+# Render cards (CRITICAL FIX: NO INDENTATION IN HTML STRING)
 # =========================================================
 for i, row in df_disp.iterrows():
     player = str(row.get("Player","—"))
@@ -734,41 +714,39 @@ for i, row in df_disp.iterrows():
     roles_sorted = sorted(roles.items(), key=lambda x: x[1], reverse=True)
 
     pills_html = "".join(
-        f"<div class='row' style='align-items:center;'>"
-        f"<span class='pill' style='background:{_pro_rating_color(v)}'>{_fmt2(v)}</span>"
-        f"<span class='sub'>{k}</span>"
-        f"</div>"
+        f"<div class='row' style='align-items:center;'><span class='pill' style='background:{_pro_rating_color(v)}'>{_fmt2(v)}</span><span class='sub'>{k}</span></div>"
         for k, v in roles_sorted
     ) if roles_sorted else "<div class='row'><span class='chip'>No role scores</span></div>"
 
     flag = _flag_html(birth)
     pos_html = _positions_html(pos)
 
-    card_html = f"""<div class='pro-wrap'>
-  <div class='pro-card'>
-    <div>
-      <div class='pro-avatar'>
-        <img src="{DEFAULT_AVATAR}" alt="{player}" />
-      </div>
-      <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
-      <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
-      <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>
-    </div>
-
-    <div>
-      <div class='name'>{player}</div>
-      {pills_html}
-      <div class='row' style='margin-top:10px;'>{pos_html}</div>
-      <div class='teamline'>{TEAM_NAME} · {league}</div>
-    </div>
-
-    <div class='rank'>#{_fmt2(i+1)}</div>
-  </div>
-</div>"""
+    # ✅ IMPORTANT: build HTML with ZERO leading spaces, then strip()
+    card_html = (
+        "<div class='pro-wrap'>"
+        "<div class='pro-card'>"
+        "<div>"
+        f"<div class='pro-avatar'><img src='{DEFAULT_AVATAR}' alt='{player}' /></div>"
+        f"<div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>"
+        f"<div class='row leftrow-foot'><span class='chip'>{foot}</span></div>"
+        f"<div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>"
+        "</div>"
+        "<div>"
+        f"<div class='name'>{player}</div>"
+        f"{pills_html}"
+        f"<div class='row' style='margin-top:10px;'>{pos_html}</div>"
+        f"<div class='teamline'>{TEAM_NAME} · {league}</div>"
+        "</div>"
+        f"<div class='rank'>#{_fmt2(i+1)}</div>"
+        "</div>"
+        "</div>"
+    ).strip()
 
     st.markdown(card_html, unsafe_allow_html=True)
 
-    # ✅ per-position dropdown
+    # =========================================================
+    # Individual Metrics dropdown (by PosGroup)
+    # =========================================================
     with st.expander("Individual Metrics", expanded=False):
         def pct_of(met: str) -> float:
             col = f"{met} Percentile"
@@ -785,14 +763,15 @@ for i, row in df_disp.iterrows():
             try:
                 v = float(v)
             except Exception:
-                return str(v) if v is not None else "—"
+                s = str(v).strip()
+                return s if s else "—"
             if np.isnan(v):
                 return "—"
             if "%" in met:
                 return f"{v:.0f}%"
             return f"{v:.2f}"
 
-        g = str(row.get("PosGroup", "OTHER")).strip().upper()
+        g = str(row.get("PosGroup","OTHER")).strip().upper()
         sections = metric_sections_for_group(g)
 
         def _sec_html(title, pairs):
@@ -812,9 +791,11 @@ for i, row in df_disp.iterrows():
                 rows_html = [f"<div class='m-row'><div class='m-label'>No metrics found for this section.</div><div></div></div>"]
             return f"<div class='m-sec'><div class='m-title'>{title}</div>{''.join(rows_html)}</div>"
 
-        sec_blocks = [_sec_html(title, pairs) for title, pairs in sections.items()]
-        st.markdown("<div class='metrics-grid'>" + "".join(sec_blocks) + "</div>", unsafe_allow_html=True)
+        blocks = "".join(_sec_html(title, pairs) for title, pairs in sections.items())
+        st.markdown(f"<div class='metrics-grid'>{blocks}</div>", unsafe_allow_html=True)
+
         st.caption(f"Percentiles computed within minutes pool {minutes_range[0]}–{minutes_range[1]} by PosGroup.")
+
 
 
 
