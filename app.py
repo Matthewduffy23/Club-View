@@ -86,7 +86,7 @@ TWEMOJI_SPECIAL = {
 }
 
 COUNTRY_TO_CC = {
-    "china":"cn",
+    "china pr":"cn",
     "england":"eng","scotland":"sct","wales":"wls",
     "united kingdom":"gb","great britain":"gb",
     "brazil":"br","argentina":"ar","uruguay":"uy",
@@ -323,6 +323,10 @@ def _positions_html(pos: str) -> str:
             seen.add(t)
             ordered.append(t)
     return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
+
+# =========================
+# INDIVIDUAL METRICS SECTIONS (by PosGroup)
+# =========================
 
 def metric_sections_for_group(g: str):
     g = (g or "").strip().upper()
