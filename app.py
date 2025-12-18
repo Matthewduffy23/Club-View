@@ -13,7 +13,9 @@ import streamlit.components.v1 as components
 # CONFIG (EDIT HERE ONLY)
 # ============================================================
 TEAM_NAME = "Chengdu Rongcheng"
-CSV_PATH = "data/Chinaall.csv"
+CSV_PATH = "Chinaall.csv"
+df = pd.read_csv(CSV_PATH)
+
 
 # Preloaded images (you already have these)
 CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"
