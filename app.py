@@ -682,31 +682,32 @@ for i, row in df.iterrows():
     pos_html = _positions_html(pos)
 
     # CRITICAL: dedent+strip prevents markdown code blocks
-    card_html = textwrap.dedent(f"""
-    <div class='pro-wrap'>
-      <div class='pro-card'>
-        <div>
-          <div class='pro-avatar'>
-            <img src="{DEFAULT_AVATAR}" alt="{player}" />
-          </div>
-          <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
-          <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
-          <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>
-        </div>
-
-        <div>
-          <div class='name'>{player}</div>
-          {pills_html}
-          <div class='row' style='margin-top:10px;'>{pos_html}</div>
-          <div class='teamline'>{TEAM_NAME} · {league}</div>
-        </div>
-
-        <div class='rank'>#{_fmt2(i+1)}</div>
-      </div>
+card_html = f"""
+<div class='pro-wrap'>
+  <div class='pro-card'>
+    <div>
+      <div class='pro-avatar'><img src="{DEFAULT_AVATAR}" alt="{player}" /></div>
+      <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
+      <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
+      <div class='row leftrow-contract'><span class='chip'>{contract_txt}</span></div>
     </div>
-    """).strip()
 
-    st.markdown(card_html, unsafe_allow_html=True)
+    <div>
+      <div class='name'>{player}</div>
+      {pills_html}
+      <div class='row' style='margin-top:10px;'>{pos_html}</div>
+      <div class='teamline'>{TEAM_NAME} · {league}</div>
+    </div>
+
+    <div class='rank'>#{_fmt2(i+1)}</div>
+  </div>
+</div>
+"""
+
+# ✅ CRITICAL FIX: make it a single line so Markdown cannot treat it as code
+card_html = " ".join(card_html.split())
+
+st.markdown(card_html, unsafe_allow_html=True)
 
 
 
