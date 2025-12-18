@@ -77,7 +77,7 @@ def _pro_chip_color(p: str) -> str:
     return _POS_COLORS.get(str(p).strip().upper(), "#2d3550")
 
 # =========================
-# FLAGS (Twemoji) — expanded mapping
+# FLAGS (Twemoji)
 # =========================
 TWEMOJI_SPECIAL = {
     "eng":"1f3f4-e0067-e0062-e0065-e006e-e0067-e007f",
@@ -86,22 +86,21 @@ TWEMOJI_SPECIAL = {
 }
 
 COUNTRY_TO_CC = {
-    "china":"cn","japan":"jp","south korea":"kr","korea":"kr",
+    "china":"cn",
     "england":"eng","scotland":"sct","wales":"wls",
     "united kingdom":"gb","great britain":"gb",
-    "brazil":"br","argentina":"ar","uruguay":"uy","colombia":"co","chile":"cl","peru":"pe","ecuador":"ec","paraguay":"py","bolivia":"bo",
-    "spain":"es","france":"fr","germany":"de","italy":"it","portugal":"pt","netherlands":"nl","belgium":"be","sweden":"se","norway":"no",
-    "denmark":"dk","poland":"pl","austria":"at","switzerland":"ch","croatia":"hr","serbia":"rs","romania":"ro","greece":"gr","turkey":"tr",
-    "united states":"us","usa":"us","canada":"ca","mexico":"mx","australia":"au","new zealand":"nz",
-    "israel":"il","iran":"ir","iraq":"iq","qatar":"qa","saudi arabia":"sa","uae":"ae","united arab emirates":"ae",
-    "morocco":"ma","algeria":"dz","tunisia":"tn","egypt":"eg","ghana":"gh","nigeria":"ng","senegal":"sn","mali":"ml","cameroon":"cm",
-    "ivory coast":"ci","cote d'ivoire":"ci","cote divoire":"ci",
+    "brazil":"br","argentina":"ar","uruguay":"uy",
+    "spain":"es","france":"fr","germany":"de","italy":"it","portugal":"pt",
+    "netherlands":"nl","belgium":"be","sweden":"se","norway":"no","denmark":"dk","poland":"pl",
+    "japan":"jp","south korea":"kr","korea":"kr",
+    "united states":"us","usa":"us","canada":"ca","australia":"au",
+    "israel":"il",
 }
 
 def _norm(s: str) -> str:
     if not s:
         return ""
-    return unicodedata.normalize("NFKD", str(s)).encode("ascii","ignore").decode("ascii").strip().lower()
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii").strip().lower()
 
 def _cc_to_twemoji(cc: str):
     if not cc or len(cc) != 2:
@@ -131,25 +130,23 @@ def _flag_html(country_name: str) -> str:
 
     return f"<span class='chip'>{cc.upper()}</span>"
 
-# =========================
-# SAFE FOOT EXTRACTOR
-# =========================
-def _get_foot(row: pd.Series) -> str:
+# --- SAFE foot extractor ---
+def _get_foot(row) -> str:
     for col in ("Foot","Preferred foot","Preferred Foot"):
         if col in row.index:
-            v = row.get(col)
+            val = row[col]
             try:
-                if pd.isna(v):
+                if pd.isna(val):
                     continue
             except Exception:
                 pass
-            s = str(v).strip()
+            s = str(val).strip()
             if s and s.lower() not in {"nan","none","null"}:
                 return s
     return ""
 
 # =========================
-# ROLE DEFINITIONS
+# ROLES (weights)
 # =========================
 CB_ROLES = {
     "Ball Playing CB": {"Passes per 90":2,"Accurate passes, %":2,"Forward passes per 90":2,"Accurate forward passes, %":2,
@@ -196,10 +193,10 @@ GK_ROLES = {
     "Sweeper GK": {"Exits per 90":1},
 }
 
-LOWER_BETTER = {"Conceded goals per 90"}
+LOWER_BETTER = {"Conceded goals per 90"}  # invert percentiles for these
 
 # =========================
-# Position helpers (Primary Position fix)
+# HELPERS
 # =========================
 ATT_VALID_PRIMARY = ("RW", "LW", "LWF", "RWF", "AMF", "LAMF", "RAMF")
 
@@ -208,7 +205,7 @@ def add_primary_position(df: pd.DataFrame) -> pd.DataFrame:
     out["Primary Position"] = out["Position"].astype(str).str.split(",").str[0].str.strip().str.upper()
     return out
 
-def pos_group_from_primary(primary_pos: str) -> str:
+def pos_group(primary_pos: str) -> str:
     p = str(primary_pos).strip().upper()
     if p.startswith("GK"):
         return "GK"
@@ -249,9 +246,12 @@ def add_percentiles(df: pd.DataFrame) -> pd.DataFrame:
     for m in used:
         if m not in out.columns:
             continue
+
         pct = out.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100)
+
         if m in LOWER_BETTER:
             pct = 100 - pct
+
         out[f"{m} Percentile"] = pct.fillna(0)
 
     return out
@@ -291,7 +291,7 @@ def compute_role_scores_for_row(row: pd.Series) -> dict:
 def img_to_data_uri(path: str) -> str:
     if not path or not os.path.exists(path):
         return ""
-    ext = os.path.splitext(path)[1].lower().replace(".","")
+    ext = os.path.splitext(path)[1].lower().replace(".", "")
     if ext == "jpg":
         ext = "jpeg"
     with open(path, "rb") as f:
@@ -325,11 +325,98 @@ def _positions_html(pos: str) -> str:
     return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
 
 # =========================
+# INDIVIDUAL METRICS SECTIONS (by PosGroup)
+# =========================
+def metric_sections_for_group(g: str):
+    # label, metric-col
+    if g == "GK":
+        return {
+            "KEEPING": [
+                ("Conceded (per 90)", "Conceded goals per 90"),
+                ("Shots Against (per 90)", "Shots against per 90"),
+                ("Save Rate %", "Save rate, %"),
+                ("xG Against (per 90)", "xG against per 90"),
+                ("Prevented Goals", "Prevented goals"),
+                ("Prevented (per 90)", "Prevented goals per 90"),
+                ("Exits (per 90)", "Exits per 90"),
+            ],
+            "DISTRIBUTION": [
+                ("Passes (per 90)", "Passes per 90"),
+                ("Pass Accuracy %", "Accurate passes, %"),
+                ("Long Passes (per 90)", "Long passes per 90"),
+                ("Long Pass Accuracy %", "Accurate long passes, %"),
+            ]
+        }
+
+    # common outfield sections
+    ATT = [
+        ("Non-pen Goals (per 90)", "Non-penalty goals per 90"),
+        ("xG (per 90)", "xG per 90"),
+        ("xA (per 90)", "xA per 90"),
+        ("Shots (per 90)", "Shots per 90"),
+        ("Touches in Box (per 90)", "Touches in box per 90"),
+        ("Crosses (per 90)", "Crosses per 90"),
+        ("Cross Accuracy %", "Accurate crosses, %"),
+    ]
+    DEF = [
+        ("Def Duels (per 90)", "Defensive duels per 90"),
+        ("Def Duel Win %", "Defensive duels won, %"),
+        ("Aerial Duels (per 90)", "Aerial duels per 90"),
+        ("Aerial Win %", "Aerial duels won, %"),
+        ("Shots Blocked (per 90)", "Shots blocked per 90"),
+        ("PAdj Interceptions", "PAdj Interceptions"),
+    ]
+    POS = [
+        ("Passes (per 90)", "Passes per 90"),
+        ("Pass Accuracy %", "Accurate passes, %"),
+        ("Forward Passes (per 90)", "Forward passes per 90"),
+        ("Forward Pass Acc %", "Accurate forward passes, %"),
+        ("Long Passes (per 90)", "Long passes per 90"),
+        ("Long Pass Acc %", "Accurate long passes, %"),
+        ("Prog Passes (per 90)", "Progressive passes per 90"),
+        ("Prog Pass Acc %", "Accurate progressive passes, %"),
+        ("Prog Runs (per 90)", "Progressive runs per 90"),
+        ("Dribbles (per 90)", "Dribbles per 90"),
+        ("Dribble Success %", "Successful dribbles, %"),
+        ("Deep Completions", "Deep completions per 90"),
+        ("Key Passes", "Key passes per 90"),
+        ("Smart Passes", "Smart passes per 90"),
+        ("To Final 3rd (per 90)", "Passes to final third per 90"),
+        ("Final 3rd Acc %", "Accurate passes to final third, %"),
+        ("To Pen Area (per 90)", "Passes to penalty area per 90"),
+        ("Pen Area Acc %", "Accurate passes to penalty area, %"),
+    ]
+
+    # slim per group
+    if g == "CB":
+        return {"DEFENSIVE": DEF, "POSSESSION": POS}
+    if g == "FB":
+        return {"ATTACKING": ATT, "DEFENSIVE": DEF, "POSSESSION": POS}
+    if g == "CM":
+        return {"ATTACKING": ATT, "DEFENSIVE": DEF, "POSSESSION": POS}
+    if g == "ATT":
+        return {"ATTACKING": ATT, "POSSESSION": POS}
+    if g == "CF":
+        return {"ATTACKING": ATT, "POSSESSION": POS, "DEFENSIVE": DEF}
+
+    return {"POSSESSION": POS}
+
+def metric_badge_html(row: pd.Series, metric: str):
+    col = f"{metric} Percentile"
+    val = row.get(col, 0)
+    try:
+        val = float(val)
+    except Exception:
+        val = 0.0
+    p = _pro_show99(val)
+    return f"<div class='m-badge' style='background:{_pro_rating_color(p)}'>{_fmt2(p)}</div>"
+
+# =========================
 # STREAMLIT SETUP
 # =========================
 st.set_page_config(page_title="Club View", layout="wide", initial_sidebar_state="collapsed")
 
-# Back to “pro-layout” font smoothing / numeric style
+# Pro-layout font smoothing / numeric style (back to original vibe)
 st.markdown("""
 <style>
 html, body, .block-container *{
@@ -342,10 +429,56 @@ html, body, .block-container *{
 .stApp { background:#0e0e0f; color:#f2f2f2; }
 .block-container { padding-top:1.3rem; padding-bottom:2rem; max-width:1150px; }
 header, footer { visibility:hidden; }
+
 .section-title{
-  font-size:40px;font-weight:900;letter-spacing:1px;
-  margin-top:26px;margin-bottom:12px;color:#f2f2f2;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  margin-top: 26px;
+  margin-bottom: 12px;
+  color: #f2f2f2;
 }
+
+/* PRO CARD */
+.pro-wrap{ display:flex; justify-content:center; }
+.pro-card{
+  position:relative; width:min(720px,98%);
+  display:grid; grid-template-columns:96px 1fr 64px;
+  gap:12px; align-items:start;
+  background:#141823; border:1px solid rgba(255,255,255,.06); border-radius:20px;
+  padding:16px; margin-bottom:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 6px 24px rgba(0,0,0,.35);
+}
+.pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
+.pro-avatar img{ width:100%; height:100%; object-fit:cover; image-rendering:auto; transform:translateZ(0); }
+
+.flagchip{ display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; padding:0; height:auto;}
+.flagchip img{ width:26px; height:18px; border-radius:2px; display:block; }
+
+.chip{ background:transparent; color:#a6a6a6; border:none; padding:0; border-radius:0; font-size:15px; line-height:18px; opacity:.92; }
+.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:2px 0; }
+.leftrow1{ margin-top:6px; } .leftrow-foot{ margin-top:2px; } .leftrow-contract{ margin-top:10px; }
+
+.pill{ padding:2px 6px; min-width:36px; border-radius:6px; font-weight:700; font-size:18px; line-height:1; color:#0b0d12; text-align:center; display:inline-block; box-shadow:none; }
+
+.name{ font-weight:800; font-size:22px; color:#e8ecff; margin-bottom:6px; letter-spacing:.2px; line-height:1.15; }
+.sub{ color:#a8b3cf; font-size:15px; opacity:.9; }
+
+.posrow{ margin-top:13.5px; }
+.postext{ font-weight:600; font-size:14.5px; letter-spacing:.2px; margin-right:11px; }
+
+.rank{ position:absolute; top:10.5px; right:14px; color:#b7bfe1; font-weight:800; font-size:18px; text-align:right; pointer-events:none; }
+
+.teamline{ color:#dbe3ff; font-size:14px; font-weight:600; margin-top:6.5px; letter-spacing:.05px; opacity:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Individual metrics (card dropdown) */
+.m-sec{ background:#121621; border:1px solid #242b3b; border-radius:16px; padding:10px 12px; }
+.m-title{ color:#e8ecff; font-weight:800; letter-spacing:.02em; margin:4px 0 10px 0; }
+.m-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 8px; border-radius:10px; }
+.m-label{ color:#c9d3f2; font-size:15.5px; letter-spacing:.1px; flex:1 1 auto; }
+.m-badge{ flex:0 0 auto; min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:700; font-size:18.5px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); box-shadow:none; }
+.metrics-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
+@media (min-width: 720px){ .metrics-grid{ grid-template-columns:repeat(3,1fr);} }
 </style>
 """, unsafe_allow_html=True)
 
@@ -358,170 +491,74 @@ if not os.path.exists(CSV_PATH):
 
 df_all = pd.read_csv(CSV_PATH)
 
-if "Team" not in df_all.columns or "Player" not in df_all.columns or "Position" not in df_all.columns:
-    st.error("CSV must include at least: Team, Player, Position.")
+need_cols = {"Team", "Player", "Position"}
+if not need_cols.issubset(set(df_all.columns)):
+    st.error(f"CSV must include at least: {', '.join(sorted(list(need_cols)))}")
     st.stop()
 
-mins_col_all = detect_minutes_col(df_all)
-df_all[mins_col_all] = pd.to_numeric(df_all[mins_col_all], errors="coerce").fillna(0)
+mins_col = detect_minutes_col(df_all)
+df_all[mins_col] = pd.to_numeric(df_all[mins_col], errors="coerce").fillna(0)
 
-# Add Primary Position + PosGroup (FIXES ATTACKERS)
 df_all = add_primary_position(df_all)
-df_all["PosGroup"] = df_all["Primary Position"].apply(pos_group_from_primary)
+df_all["PosGroup"] = df_all["Primary Position"].apply(pos_group)
 
 # =========================
-# TOP CONTROLS (Minutes affects pool; Age only affects display)
-# =========================
-st.markdown("<div class='section-title' style='margin-top:0;'>FILTERS</div>", unsafe_allow_html=True)
-
-c1, c2, c3 = st.columns([1.3, 1.0, 1.7])
-
-with c1:
-    mins_min_default, mins_max_default = 500, 5000
-    max_mins = int(max(5000, float(df_all[mins_col_all].max() if len(df_all) else 5000)))
-    minutes_range = st.slider(
-        "Minutes range (affects percentile pool & role scores)",
-        min_value=0,
-        max_value=max_mins,
-        value=(mins_min_default, min(max_mins, mins_max_default)),
-        step=50
-    )
-
-with c2:
-    age_range = st.slider(
-        "Age range (display only)",
-        min_value=16,
-        max_value=45,
-        value=(16, 45),
-        step=1
-    )
-
-# Apply minutes range to POOL BEFORE percentiles
-pool = df_all[(df_all[mins_col_all] >= minutes_range[0]) & (df_all[mins_col_all] <= minutes_range[1])].copy()
-if pool.empty:
-    st.warning("No players in the selected minutes range (pool is empty). Widen the minutes slider.")
-    st.stop()
-
-# Compute percentiles inside the selected pool
-pool = add_percentiles(pool)
-
-# Team view from pool (so role scores are consistent with pool)
-df_team = pool[pool["Team"].astype(str).str.strip() == TEAM_NAME].copy()
-if df_team.empty:
-    st.info(f"No players found for Team = '{TEAM_NAME}' inside the minutes pool.")
-    st.stop()
-
-# Role scores
-df_team["RoleScores"] = df_team.apply(compute_role_scores_for_row, axis=1)
-
-# Apply AGE DISPLAY filter (does NOT affect pool)
-if "Age" in df_team.columns:
-    df_team["Age_num"] = pd.to_numeric(df_team["Age"], errors="coerce")
-    df_view = df_team[(df_team["Age_num"] >= age_range[0]) & (df_team["Age_num"] <= age_range[1])].copy()
-else:
-    df_view = df_team.copy()
-
-# Sort displayed players by minutes DESC
-df_view = df_view.sort_values(mins_col_all, ascending=False).reset_index(drop=True)
-
-# =========================
-# PLAYER METRICS DROPDOWN
-# =========================
-with c3:
-    player_choice = st.selectbox(
-        "Individual player metrics",
-        options=["— Select —"] + df_view["Player"].astype(str).tolist(),
-        index=0
-    )
-
-if player_choice != "— Select —":
-    prow = df_view[df_view["Player"].astype(str) == player_choice].head(1)
-    if not prow.empty:
-        prow = prow.iloc[0]
-        pg = prow.get("PosGroup", "OTHER")
-
-        if pg == "GK":
-            role_metrics = sorted({m for r in GK_ROLES.values() for m in r.keys()})
-        elif pg == "CB":
-            role_metrics = sorted({m for r in CB_ROLES.values() for m in r.keys()})
-        elif pg == "FB":
-            role_metrics = sorted({m for r in FB_ROLES.values() for m in r.keys()})
-        elif pg == "CM":
-            role_metrics = sorted({m for r in CM_ROLES.values() for m in r.keys()})
-        elif pg == "ATT":
-            role_metrics = sorted({m for r in ATT_ROLES.values() for m in r.keys()})
-        elif pg == "CF":
-            role_metrics = sorted({m for r in CF_ROLES.values() for m in r.keys()})
-        else:
-            role_metrics = []
-
-        rows = []
-        for m in role_metrics:
-            raw = prow.get(m, np.nan)
-            pct = prow.get(f"{m} Percentile", np.nan)
-            rows.append([m, raw, pct])
-
-        st.markdown("<div class='section-title'>PLAYER METRICS</div>", unsafe_allow_html=True)
-        st.caption(f"Percentiles computed within minutes pool {minutes_range[0]}–{minutes_range[1]} (by PosGroup).")
-        st.dataframe(
-            pd.DataFrame(rows, columns=["Metric", "Value", "Percentile"]).sort_values("Percentile", ascending=False),
-            use_container_width=True,
-            hide_index=True
-        )
-
-# =========================
-# HEADER
+# HEADER (single iframe OK)
 # =========================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri = img_to_data_uri(FLAG_PATH)
 
-header_html = textwrap.dedent(f"""
-<div style="background:#1c1c1d;border:1px solid #2a2a2b;border-radius:20px;padding:24px;">
-  <div style="display:grid;grid-template-columns:260px 1fr;gap:26px;align-items:start;">
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <div style="width:260px;height:220px;background:#121213;border:1px solid #2a2a2b;border-radius:20px;
-                  display:flex;align-items:center;justify-content:center;overflow:hidden;">
-        {f"<img src='{crest_uri}' style='width:200px;height:200px;object-fit:contain;' />" if crest_uri else ""}
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;padding-left:6px;">
-        {f"<img src='{flag_uri}' style='width:56px;height:40px;object-fit:cover;border-radius:6px;' />" if flag_uri else ""}
-        <div style="font-size:24px;font-weight:700;color:#d2d2d4;line-height:1;">{LEAGUE_TEXT}</div>
+header_html = f"""
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+body{{margin:0;background:transparent;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}}
+.club-card{{background:#1c1c1d;border:1px solid #2a2a2b;border-radius:20px;padding:24px;}}
+.header-grid{{display:grid;grid-template-columns:260px 1fr;gap:26px;align-items:start;}}
+.crest-tile{{width:260px;height:220px;background:#121213;border:1px solid #2a2a2b;border-radius:20px;display:flex;align-items:center;justify-content:center;overflow:hidden;}}
+.crest-img{{width:200px;height:200px;object-fit:contain;}}
+.left-league{{display:flex;align-items:center;gap:12px;padding-left:6px;}}
+.flag-img{{width:56px;height:40px;object-fit:cover;border-radius:6px;}}
+.team-title{{font-size:54px;font-weight:850;margin:0;line-height:1.05;color:#f2f2f2;}}
+.ratings-col{{display:flex;flex-direction:column;gap:12px;margin-top:12px;}}
+.metric{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}}
+.pill{{width:56px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;color:#111;border:1px solid rgba(0,0,0,.35);}}
+.label{{font-size:34px;font-weight:700;color:#9ea0a6;line-height:1;}}
+.triplet{{display:flex;gap:26px;flex-wrap:wrap;align-items:center;}}
+.info{{margin-top:10px;display:flex;flex-direction:column;gap:6px;font-size:18px;color:#b0b0b3;}}
+</style></head>
+<body>
+<div class="club-card">
+  <div class="header-grid">
+    <div>
+      <div class="crest-tile">{f"<img class='crest-img' src='{crest_uri}' />" if crest_uri else ""}</div>
+      <div class="left-league">
+        {f"<img class='flag-img' src='{flag_uri}' />" if flag_uri else ""}
+        <div style="font-size:28px;font-weight:700;color:#d2d2d4;line-height:1;">{LEAGUE_TEXT}</div>
       </div>
     </div>
-
     <div>
-      <div style="font-size:52px;font-weight:850;line-height:1.05;color:#f2f2f2;">{TEAM_NAME}</div>
-
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px;">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <div style="width:56px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                      font-size:24px;font-weight:900;color:#111;border:1px solid rgba(0,0,0,.35);
-                      background:{_pro_rating_color(OVERALL)};">{OVERALL}</div>
-          <div style="font-size:30px;font-weight:700;color:#9ea0a6;">Overall</div>
+      <div class="team-title">{TEAM_NAME}</div>
+      <div class="ratings-col">
+        <div class="metric">
+          <div class="pill" style="background:{_pro_rating_color(OVERALL)}">{OVERALL}</div>
+          <div class="label">Overall</div>
         </div>
-
-        <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:center;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:56px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:24px;font-weight:900;color:#111;border:1px solid rgba(0,0,0,.35);
-                        background:{_pro_rating_color(ATT_HDR)};">{ATT_HDR}</div>
-            <div style="font-size:30px;font-weight:700;color:#9ea0a6;">ATT</div>
+        <div class="triplet">
+          <div class="metric">
+            <div class="pill" style="background:{_pro_rating_color(ATT_HDR)}">{ATT_HDR}</div>
+            <div class="label">ATT</div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:56px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:24px;font-weight:900;color:#111;border:1px solid rgba(0,0,0,.35);
-                        background:{_pro_rating_color(MID_HDR)};">{MID_HDR}</div>
-            <div style="font-size:30px;font-weight:700;color:#9ea0a6;">MID</div>
+          <div class="metric">
+            <div class="pill" style="background:{_pro_rating_color(MID_HDR)}">{MID_HDR}</div>
+            <div class="label">MID</div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:56px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-                        font-size:24px;font-weight:900;color:#111;border:1px solid rgba(0,0,0,.35);
-                        background:{_pro_rating_color(DEF_HDR)};">{DEF_HDR}</div>
-            <div style="font-size:30px;font-weight:700;color:#9ea0a6;">DEF</div>
+          <div class="metric">
+            <div class="pill" style="background:{_pro_rating_color(DEF_HDR)}">{DEF_HDR}</div>
+            <div class="label">DEF</div>
           </div>
         </div>
-
-        <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:16px;color:#b0b0b3;">
+        <div class="info">
           <div><b>Average Age:</b> {AVG_AGE:.2f}</div>
           <div><b>League Position:</b> {LEAGUE_POSITION}</div>
         </div>
@@ -529,9 +566,9 @@ header_html = textwrap.dedent(f"""
     </div>
   </div>
 </div>
-""").strip()
-
-components.html(header_html, height=350)
+</body></html>
+"""
+components.html(header_html, height=360)
 
 # =========================
 # PERFORMANCE
@@ -543,45 +580,66 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================
-# PRO CARD CSS
-# =========================
-st.markdown("""
-<style>
-.pro-wrap{ display:flex; justify-content:center; }
-.pro-card{
-  position:relative; width:min(720px,98%); display:grid; grid-template-columns:96px 1fr 64px;
-  gap:12px; align-items:start;
-  background:#141823; border:1px solid rgba(255,255,255,.06); border-radius:20px;
-  padding:16px; margin-bottom:12px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 6px 24px rgba(0,0,0,.35);
-}
-.pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
-.pro-avatar img{ width:100%; height:100%; object-fit:cover; }
-
-.flagchip{ display:inline-flex; align-items:center; gap:6px; }
-.flagchip img{ width:26px; height:18px; border-radius:2px; display:block; }
-
-.chip{ color:#a6a6a6; font-size:15px; line-height:18px; opacity:.92; }
-.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:2px 0; }
-.leftrow1{ margin-top:6px; } .leftrow-foot{ margin-top:2px; } .leftrow-contract{ margin-top:6px; }
-
-.pill{ padding:2px 6px; min-width:36px; border-radius:6px; font-weight:900; font-size:18px; line-height:1; color:#0b0d12; text-align:center; }
-.name{ font-weight:950; font-size:22px; color:#e8ecff; margin-bottom:6px; letter-spacing:.2px; line-height:1.15; }
-.postext{ font-weight:800; font-size:14.5px; letter-spacing:.2px; margin-right:10px; }
-.rank{ position:absolute; top:10px; right:14px; color:#b7bfe1; font-weight:900; font-size:18px; }
-.teamline{ color:#dbe3ff; font-size:14px; font-weight:700; margin-top:6px; letter-spacing:.05px; opacity:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-</style>
-""", unsafe_allow_html=True)
-
-# =========================
-# SQUAD
+# SQUAD + FILTERS (UNDER SQUAD)
 # =========================
 st.markdown('<div class="section-title" style="margin-top:30px;">SQUAD</div>', unsafe_allow_html=True)
 
-if df_view.empty:
-    st.info("No players match the AGE display filter.")
+# ---- Controls must be here (under Squad title) ----
+c1, c2 = st.columns([1.2, 1.0])
+
+max_mins = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
+
+with c1:
+    minutes_range = st.slider(
+        "Minutes (affects role scores / percentiles)",
+        min_value=0,
+        max_value=max_mins,
+        value=(500, min(5000, max_mins)),
+        step=50
+    )
+
+with c2:
+    age_range = st.slider(
+        "Age (display only)",
+        min_value=16,
+        max_value=45,
+        value=(16, 45),
+        step=1
+    )
+
+# ---- Pool = minutes range (affects percentiles/roles) ----
+pool = df_all[(df_all[mins_col] >= minutes_range[0]) & (df_all[mins_col] <= minutes_range[1])].copy()
+if pool.empty:
+    st.info("No players exist inside this minutes range. Widen the slider.")
     st.stop()
 
+pool = add_percentiles(pool)
+
+# ---- Team from pool ----
+df_team = pool[pool["Team"].astype(str).str.strip() == TEAM_NAME].copy()
+if df_team.empty:
+    st.info(f"No players found for Team='{TEAM_NAME}' inside this minutes range.")
+    st.stop()
+
+# role scores
+df_team["RoleScores"] = df_team.apply(compute_role_scores_for_row, axis=1)
+
+# display age filter (does not change pool)
+df_view = df_team.copy()
+if "Age" in df_view.columns:
+    df_view["Age_num"] = pd.to_numeric(df_view["Age"], errors="coerce")
+    df_view = df_view[(df_view["Age_num"] >= age_range[0]) & (df_view["Age_num"] <= age_range[1])].copy()
+
+# sort by minutes DESC
+df_view = df_view.sort_values(mins_col, ascending=False).reset_index(drop=True)
+
+if df_view.empty:
+    st.info("No players match the Age display filter.")
+    st.stop()
+
+# =========================
+# RENDER CARDS (with per-card metrics dropdown)
+# =========================
 for i, row in df_view.iterrows():
     player = str(row.get("Player", "—"))
     league = str(row.get("League", ""))
@@ -590,7 +648,7 @@ for i, row in df_view.iterrows():
     foot = _get_foot(row) or "—"
     age_txt = _age_text(row)
     contract_txt = _contract_year(row)
-    mins = int(row.get(mins_col_all, 0) or 0)
+    mins = int(row.get(mins_col, 0) or 0)
 
     roles = row.get("RoleScores", {})
     if not isinstance(roles, dict):
@@ -600,7 +658,7 @@ for i, row in df_view.iterrows():
     pills_html = "".join(
         f"<div class='row' style='align-items:center;'>"
         f"<span class='pill' style='background:{_pro_rating_color(v)}'>{_fmt2(v)}</span>"
-        f"<span class='chip'>{k}</span>"
+        f"<span class='sub'>{k}</span>"
         f"</div>"
         for k, v in roles_sorted
     ) if roles_sorted else "<div class='row'><span class='chip'>No role scores</span></div>"
@@ -613,7 +671,7 @@ for i, row in df_view.iterrows():
       <div class='pro-card'>
         <div>
           <div class='pro-avatar'>
-            <img src="{DEFAULT_AVATAR}" alt="{player}" />
+            <img src="{DEFAULT_AVATAR}" alt="{player}" loading="lazy" />
           </div>
           <div class='row leftrow1'>{flag}<span class='chip'>{age_txt}</span><span class='chip'>{mins} mins</span></div>
           <div class='row leftrow-foot'><span class='chip'>{foot}</span></div>
@@ -623,7 +681,7 @@ for i, row in df_view.iterrows():
         <div>
           <div class='name'>{player}</div>
           {pills_html}
-          <div class='row' style='margin-top:10px;'>{pos_html}</div>
+          <div class='row posrow'>{pos_html}</div>
           <div class='teamline'>{TEAM_NAME} · {league}</div>
         </div>
 
@@ -632,6 +690,35 @@ for i, row in df_view.iterrows():
     </div>
     """
     st.markdown(" ".join(card_html.split()), unsafe_allow_html=True)
+
+    # --- Individual player metrics dropdown (FROM CARD) ---
+    exp_key = f"ind_metrics_{i}_{player}_{mins}"
+    with st.expander("Individual Metrics", expanded=False):
+        g = str(row.get("PosGroup", "OTHER"))
+        sections = metric_sections_for_group(g)
+
+        def _sec_html(title, pairs):
+            rows_html = []
+            for lab, met in pairs:
+                if met not in row.index:
+                    continue
+                badge = metric_badge_html(row, met)
+                rows_html.append(
+                    f"<div class='m-row'>"
+                    f"<div class='m-label'>{lab}</div>"
+                    f"{badge}"
+                    f"</div>"
+                )
+            if not rows_html:
+                rows_html = [f"<div class='m-row'><div class='m-label'>No metrics found for this section.</div><div></div></div>"]
+            return f"<div class='m-sec'><div class='m-title'>{title}</div>{''.join(rows_html)}</div>"
+
+        sec_blocks = []
+        for title, pairs in sections.items():
+            sec_blocks.append(_sec_html(title, pairs))
+
+        st.markdown("<div class='metrics-grid'>" + "".join(sec_blocks) + "</div>", unsafe_allow_html=True)
+        st.caption(f"Percentiles are computed within minutes pool {minutes_range[0]}–{minutes_range[1]} (by PosGroup).")
 
 
 
