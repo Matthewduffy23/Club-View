@@ -65,7 +65,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---- Header HTML (rendered via components.html, not markdown) ----
+# ---- Header HTML ----
 header_html = f"""
 <!DOCTYPE html>
 <html>
@@ -88,14 +88,22 @@ header_html = f"""
 
   .header-grid{{
     display:grid;
-    grid-template-columns: 230px 1fr;
+    grid-template-columns: 260px 1fr;
     gap: 26px;
     align-items: start;
   }}
 
+  /* LEFT: crest + league under it */
+  .left-col {{
+    display:flex;
+    flex-direction:column;
+    gap: 14px;
+    align-items: flex-start;
+  }}
+
   .crest-tile{{
-    width: 230px;
-    height: 230px;
+    width: 260px;
+    height: 220px;
     background:#121213;
     border:1px solid #2a2a2b;
     border-radius:20px;
@@ -106,67 +114,17 @@ header_html = f"""
   }}
 
   .crest-img{{
-    width: 190px;
-    height: 190px;
+    width: 185px;
+    height: 185px;
     object-fit: contain;
     display:block;
   }}
 
-  .team-title{{
-    font-size:56px;
-    font-weight:800;
-    margin:0;
-    line-height:1.05;
-    color:#f2f2f2;
-  }}
-
-  .ratings-col{{
-    display:flex;
-    flex-direction:column;
-    gap:16px;
-    margin-top:14px;
-  }}
-
-  .metric{{
+  .left-league {{
     display:flex;
     align-items:center;
-    gap:14px;
-    flex-wrap:wrap;
-  }}
-
-  .pill{{
-    width:60px;
-    height:46px;
-    border-radius:12px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:28px;
-    font-weight:900;
-    color:#111;
-    border:1px solid rgba(0,0,0,.35);
-    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset;
-  }}
-
-  .label{{
-    font-size:40px;
-    font-weight:700;
-    color:#9ea0a6;
-    line-height:1;
-  }}
-
-  .triplet{{
-    display:flex;
-    gap:30px;
-    flex-wrap:wrap;
-    align-items:center;
-  }}
-
-  .league-row{{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    margin-top:14px;
+    gap: 12px;
+    padding-left: 6px;
   }}
 
   .flag-img{{
@@ -177,15 +135,69 @@ header_html = f"""
     display:block;
   }}
 
+  /* smaller than before (per your request) */
   .league-text{{
-    font-size:34px;
+    font-size:28px;
     font-weight:700;
     color:#d2d2d4;
     line-height:1;
   }}
 
+  /* RIGHT: title + ratings + info */
+  .team-title{{
+    font-size:54px;
+    font-weight:850;
+    margin:0;
+    line-height:1.05;
+    color:#f2f2f2;
+  }}
+
+  .ratings-col{{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    margin-top:12px;
+  }}
+
+  .metric{{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }}
+
+  /* slightly smaller pills + labels */
+  .pill{{
+    width:56px;
+    height:42px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:26px;
+    font-weight:900;
+    color:#111;
+    border:1px solid rgba(0,0,0,.35);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset;
+  }}
+
+  .label{{
+    font-size:34px;
+    font-weight:700;
+    color:#9ea0a6;
+    line-height:1;
+  }}
+
+  .triplet{{
+    display:flex;
+    gap:26px;
+    flex-wrap:wrap;
+    align-items:center;
+  }}
+
+  /* keep info small like you wanted */
   .info{{
-    margin-top:14px;
+    margin-top:10px;
     display:flex;
     flex-direction:column;
     gap:6px;
@@ -198,15 +210,22 @@ header_html = f"""
 <body>
   <div class="club-card">
     <div class="header-grid">
-      <div class="crest-tile">
-        {f"<img class='crest-img' src='{crest_uri}' />" if crest_uri else ""}
+
+      <div class="left-col">
+        <div class="crest-tile">
+          {f"<img class='crest-img' src='{crest_uri}' />" if crest_uri else ""}
+        </div>
+
+        <div class="left-league">
+          {f"<img class='flag-img' src='{flag_uri}' />" if flag_uri else ""}
+          <div class="league-text">{LEAGUE_TEXT}</div>
+        </div>
       </div>
 
       <div>
         <div class="team-title">{TEAM_NAME}</div>
 
         <div class="ratings-col">
-
           <div class="metric">
             <div class="pill" style="background:{score_color(OVERALL)}">{OVERALL}</div>
             <div class="label">Overall</div>
@@ -229,33 +248,45 @@ header_html = f"""
             </div>
           </div>
 
-          <div class="league-row">
-            {f"<img class='flag-img' src='{flag_uri}' />" if flag_uri else ""}
-            <div class="league-text">{LEAGUE_TEXT}</div>
-          </div>
-
           <div class="info">
             <div><b>Average Age:</b> {AVG_AGE:.2f}</div>
             <div><b>League Position:</b> {LEAGUE_POSITION}</div>
           </div>
-
         </div>
       </div>
+
     </div>
   </div>
 </body>
 </html>
 """
 
-# Height should comfortably fit the card
+# A bit taller since left now has league under crest
 components.html(header_html, height=360)
 
-# ---- Performance section ----
-st.markdown("## Performance")
+# ---- PERFORMANCE heading (ALL CAPS main heading) ----
+st.markdown(
+    """
+    <style>
+      .section-title{
+        font-size: 40px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        margin-top: 26px;
+        margin-bottom: 12px;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown('<div class="section-title">PERFORMANCE</div>', unsafe_allow_html=True)
+
 if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
     st.image(PERFORMANCE_IMAGE_PATH, use_container_width=True)
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
+
 
 
 
