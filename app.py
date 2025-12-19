@@ -1234,9 +1234,9 @@ TEAM_NOTES = {
             "Finishing",
         ],
         "formations": [
-            ("4-5-1", 55),
-            ("3-4-3", 44),
-            ("4-2-3-1", 25),
+            ("5-4-1", 58),
+            ("3-4-3", 25),
+            ("4-3-3", 6),
         ],
     },
 
@@ -1255,9 +1255,9 @@ TEAM_NOTES = {
             "Conceding Goals",
         ],
         "formations": [
-            ("4-3-3", 48),
-            ("3-5-2", 32),
-            ("4-2-3-1", 20),
+            ("4-4-2", 38),
+            ("3-5-2", 33),
+            ("4-3-3", 8),
         ],
     },
 }
@@ -1308,28 +1308,28 @@ if notes:
     <div style="margin-top:14px;margin-bottom:26px;">
 
       <div style="margin-bottom:14px;">
-        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+        <div style="color:#c9d3f2;font-weight:600;font-size:14px;margin-bottom:6px;">
           Style
         </div>
         {_chip_row(notes.get("style", []), "#bfdbfe")}
       </div>
 
       <div style="margin-bottom:14px;">
-        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+        <div style="color:#c9d3f2;font-weight:600;font-size:14px;margin-bottom:6px;">
           Strengths
         </div>
         {_chip_row(notes.get("strengths", []), "#a7f3d0")}
       </div>
 
       <div style="margin-bottom:14px;">
-        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+        <div style="color:#c9d3f2;font-weight:600;font-size:14px;margin-bottom:6px;">
           Weaknesses
         </div>
         {_chip_row(notes.get("weaknesses", []), "#fecaca")}
       </div>
 
       <div>
-        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+        <div style="color:#e5e7eb;font-weight:600;font-size:14px;margin-bottom:6px;">
           Formations Used
         </div>
         {_formation_row(notes.get("formations", []))}
