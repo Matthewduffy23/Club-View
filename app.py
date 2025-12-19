@@ -36,13 +36,13 @@ FLAG_PATH  = "images/china.png"                       # optional (header flag)
 PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
 
 # Header manual inputs
-OVERALL = 88
-ATT_HDR = 66
-MID_HDR = 77
-DEF_HDR = 79
+OVERALL = 99
+ATT_HDR = 89
+POS_HDR = 88
+DEF_HDR = 90
 LEAGUE_TEXT = "Super League"
-AVG_AGE = 24.32
-LEAGUE_POSITION = 2
+AVG_AGE = 29.4
+LEAGUE_POSITION = 3
 
 DEFAULT_AVATAR = "https://i.redd.it/43axcjdu59nd1.jpeg"
 
