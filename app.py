@@ -964,86 +964,35 @@ if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
-# =========================
-# TEAM NOTES (MANUAL – TWO TEAMS ONLY)
-# Edit text here ONLY
-# =========================
-import html  # safe to include once
-
-TEAM_NOTES_RAW = {
-    "Chengdu Rongcheng": {
-        "style": [
-            "Possession",
-            "Pressing",
-            "Structured",
-        ],
-        "strengths": [
-            "Chance Prevention",
-            "Game Control",
-            "Pressing Intensity",
-        ],
-        "weaknesses": [
-            "Finishing",
-            "Final 3rd Entries",
-            "Set Pieces",
-        ],
-    },
-
-    "Beijing Guoan": {
-        "style": [
-            "High Tempo",
-            "Vertical Attacks",
-        ],
-        "strengths": [
-            "Chance Creation",
-            "Wide Threat",
-            "Transition Speed",
-        ],
-        "weaknesses": [
-            "Defensive Transitions",
-            "Set Pieces",
-        ],
-    },
-}
-
-# 🔑 Normalize keys ONCE
-TEAM_NOTES = {_norm_one(k): v for k, v in TEAM_NOTES_RAW.items()}
-
-def _chip_row(items, bg):
-    if not items:
-        return ""
-    return "".join(
-        f"<span style='background:{bg};"
-        f"color:#0b0d12;"
-        f"padding:6px 14px;"
-        f"border-radius:999px;"
-        f"font-weight:600;"
-        f"font-size:14px;"
-        f"margin:0 8px 10px 0;"
-        f"display:inline-block;'>"
-        f"{html.escape(str(t))}</span>"
-        for t in items
-    )
-
-# --- Resolve team notes ---
-team_key = _norm_one(TEAM_NAME)
-notes = TEAM_NOTES.get(team_key)
-
 if notes:
     team_notes_html = f"""
     <div style="margin-top:14px;margin-bottom:26px;">
+
       <div style="margin-bottom:14px;">
+        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
+          Style
+        </div>
         {_chip_row(notes.get("style", []), "#bfdbfe")}
       </div>
+
       <div style="margin-bottom:14px;">
+        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
+          Strengths
+        </div>
         {_chip_row(notes.get("strengths", []), "#a7f3d0")}
       </div>
+
       <div>
+        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
+          Weaknesses
+        </div>
         {_chip_row(notes.get("weaknesses", []), "#fecaca")}
       </div>
+
     </div>
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
+
 
 
 
