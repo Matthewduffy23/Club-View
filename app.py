@@ -973,35 +973,34 @@ import html  # safe even if already imported
 TEAM_NOTES = {
     "chengdu rongcheng": {
         "style": [
-            "Possession",
-            "Pressing",
-            "Structured",
+            "Organized",
+            "Possession Based",
+            "Vertical Build Up",
+            "Create Chances via Crosses",
         ],
         "strengths": [
             "Chance Prevention",
-            "Game Control",
-            "Pressing Intensity",
+            "Box Entries",
+            "Attacking Territory",
         ],
         "weaknesses": [
             "Finishing",
-            "Final 3rd Entries",
-            "Set Pieces",
         ],
     },
 
     "beijing guoan": {
         "style": [
-            "High Tempo",
-            "Vertical Attacks",
+            "Dominate Possession",
+            "Patient passing build-up",
+            "Intense pressing",
         ],
         "strengths": [
-            "Chance Creation",
-            "Wide Threat",
-            "Transition Speed",
+            "Control",
+            "Attacking Territory",
+            "Finishing",
         ],
         "weaknesses": [
-            "Defensive Transitions",
-            "Set Pieces",
+            "Conceding Goals",
         ],
     },
 }
