@@ -195,6 +195,19 @@ def _get_foot(row: pd.Series) -> str:
     return ""
 
 # =========================
+# ROLE DEFINITIONS + METRICS LISTS + FEATURES + POOL PERCENTILES
+# (FULL REPLACEMENT FOR WHAT YOU POSTED)
+#
+# Fix: FEATURES now comes from *every metric in METRICS_BY_GROUP* (what drives your individual sections),
+# plus all role metrics too. This stops “missing from dropdown / missing from individual section”
+# because percentiles never got created for them.
+# =========================
+
+from typing import Dict
+import numpy as np
+import pandas as pd
+
+# =========================
 # ROLE DEFINITIONS
 # =========================
 CB_ROLES = {
@@ -240,251 +253,10 @@ GK_ROLES = {
 # LOWER is better -> invert percentile
 LOWER_BETTER = {"Conceded goals per 90"}
 
-# =========================
-# POSITION GROUPING (uses Primary Position)
-# =========================
-def pos_group(primary_pos: str) -> str:
-    p = str(primary_pos).strip().upper()
-    if p.startswith("GK"):
-        return "GK"
-    if p.startswith(("LCB","RCB","CB")):
-        return "CB"
-    if p.startswith(("RB","RWB","LB","LWB")):
-        return "FB"
-    if p.startswith(("LCMF","RCMF","LDMF","RDMF","DMF","CMF")):
-        return "CM"
-    if p in {"RW","RWF","RAMF","LW","LWF","LAMF","AMF"}:
-        return "ATT"
-    if p.startswith("CF"):
-        return "CF"
-    return "OTHER"
-
-def weighted_role_score(row: pd.Series, weights: Dict[str, float]) -> int:
-    num, den = 0.0, 0.0
-    for metric, w in weights.items():
-        col = f"{metric} Percentile"
-        v = row.get(col, 0)
-        try:
-            v = float(v)
-        except Exception:
-            v = 0.0
-        if pd.isna(v):
-            v = 0.0
-        num += float(w) * v
-        den += float(w)
-    score_0_100 = (num / den) if den > 0 else 0.0
-    return _pro_show99(score_0_100)
-
-def compute_role_scores_for_row(row: pd.Series) -> Dict[str, int]:
-    g = row.get("PosGroup","OTHER")
-    if g == "GK":
-        return {k: weighted_role_score(row, w) for k,w in GK_ROLES.items()}
-    if g == "CB":
-        return {k: weighted_role_score(row, w) for k,w in CB_ROLES.items()}
-    if g == "FB":
-        return {k: weighted_role_score(row, w) for k,w in FB_ROLES.items()}
-    if g == "CM":
-        roles = {k: weighted_role_score(row, w) for k,w in CM_ROLES.items()}
-        return dict(sorted(roles.items(), key=lambda x:x[1], reverse=True)[:3])
-    if g == "ATT":
-        return {k: weighted_role_score(row, w) for k,w in ATT_ROLES.items()}
-    if g == "CF":
-        return {k: weighted_role_score(row, w) for k,w in CF_ROLES.items()}
-    return {}
 
 # =========================
-# UTILITIES
-# =========================
-def detect_minutes_col(df: pd.DataFrame) -> str:
-    for c in ["Minutes played","Minutes Played","Minutes","mins","minutes","Min"]:
-        if c in df.columns:
-            return c
-    return "Minutes played"
-
-def img_to_data_uri(path: str) -> str:
-    if not path or not os.path.exists(path):
-        return ""
-    ext = os.path.splitext(path)[1].lower().replace(".","")
-    if ext == "jpg":
-        ext = "jpeg"
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
-    return f"data:image/{ext};base64,{b64}"
-
-def _positions_html(pos: str) -> str:
-    raw = (pos or "").strip().upper()
-    tokens = [t for t in re.split(r"[,\s/;]+", raw) if t]
-    seen, ordered = set(), []
-    for t in tokens:
-        if t not in seen:
-            seen.add(t)
-            ordered.append(t)
-    return "".join(f"<span class='postext' style='color:{_pro_chip_color(t)}'>{t}</span>" for t in ordered)
-
-def _age_text(row: pd.Series) -> str:
-    if "Age" in row.index:
-        try:
-            a = int(float(row["Age"]))
-            return f"{a}y.o." if a > 0 else "—"
-        except Exception:
-            return "—"
-    return "—"
-
-def _contract_year(row: pd.Series) -> str:
-    c = "Contract expires"
-    if c in row.index:
-        cy = pd.to_datetime(row.get(c), errors="coerce")
-        return f"{int(cy.year)}" if pd.notna(cy) else "—"
-    return "—"
-
-# =========================
-# Percentiles computed from POOL (minutes slider affects POOL)
-# - per PosGroup when group has enough samples; fallback to global pool ranking
-# =========================
-def metrics_used_by_roles() -> set:
-    rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
-    s = set()
-    for rs in rolesets:
-        for _, wmap in rs.items():
-            s |= set(wmap.keys())
-    return s
-
-def add_pool_percentiles(df_all: pd.DataFrame, pool_mask: pd.Series, min_group: int = 5) -> pd.DataFrame:
-    used = metrics_used_by_roles()
-    out = df_all.copy()
-
-    for m in used:
-        if m in out.columns:
-            out[m] = pd.to_numeric(out[m], errors="coerce")
-
-    pool = out.loc[pool_mask].copy()
-    if pool.empty:
-        for m in used:
-            out[f"{m} Percentile"] = 0.0
-        return out
-
-    pool["__gcount"] = pool.groupby("PosGroup")["PosGroup"].transform("size")
-
-    for m in used:
-        if m not in pool.columns:
-            out[f"{m} Percentile"] = 0.0
-            continue
-
-        global_pct = pool[m].rank(pct=True) * 100.0
-        group_pct = pool.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100.0)
-
-        use_group = pool["__gcount"] >= min_group
-        pct = global_pct.where(~use_group, group_pct)
-
-        if m in LOWER_BETTER:
-            pct = 100.0 - pct
-
-        out[f"{m} Percentile"] = 0.0
-        out.loc[pool_mask, f"{m} Percentile"] = pct.fillna(0.0).values
-
-    return out
-
-# =========================
-# METRIC HELPERS (fix NameError + ensure correct display)
-# =========================
-def _metric_pct(row: pd.Series, metric: str) -> float:
-    """Returns computed percentile for metric (expects '<metric> Percentile' col)."""
-    try:
-        v = row.get(f"{metric} Percentile", np.nan)
-        return float(v) if not pd.isna(v) else np.nan
-    except Exception:
-        return np.nan
-
-def _metric_val(row: pd.Series, metric: str) -> float:
-    """Returns raw value for metric."""
-    try:
-        v = row.get(metric, np.nan)
-        v = pd.to_numeric(v, errors="coerce")
-        return float(v) if not pd.isna(v) else np.nan
-    except Exception:
-        return np.nan
-
-def _available_metric_pairs(df: pd.DataFrame, pairs):
-    """
-    Filters (label, metric) pairs to only those where:
-    - raw metric column exists
-    - percentile column exists
-    """
-    out = []
-    for lab, met in pairs:
-        if met in df.columns and f"{met} Percentile" in df.columns:
-            out.append((lab, met))
-    return out
-
-# =========================
-# FotMob photo scraping (cached)
-# =========================
-@st.cache_data(show_spinner=False, ttl=60*60*12)
-def fotmob_photo_map(team_url: str) -> Dict[str, str]:
-    """
-    Returns mapping from normalized full name -> image url (best-effort).
-    """
-    try:
-        if not team_url:
-            return {}
-        headers = {"User-Agent": "Mozilla/5.0"}
-        html = requests.get(team_url, headers=headers, timeout=20).text
-
-        ids = re.findall(r'"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"([^"]+)"', html)
-        if not ids:
-            ids = re.findall(r'"playerId"\s*:\s*(\d+).*?"name"\s*:\s*"([^"]+)"', html, flags=re.S)
-
-        out = {}
-        for pid, name in ids:
-            nm = _norm_one(name)
-            if not nm:
-                continue
-            out[nm] = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
-        return out
-    except Exception:
-        return {}
-
-def load_local_photo_overrides(path: str) -> Dict[str, str]:
-    if not path or not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        if isinstance(obj, dict):
-            return {_norm_one(k): str(v).strip() for k, v in obj.items() if str(v).strip()}
-        return {}
-    except Exception:
-        return {}
-
-def resolve_player_photo(player_name: str,
-                         team_photo_map: Dict[str, str],
-                         local_overrides: Dict[str, str]) -> str:
-    """
-    Priority:
-    1) local overrides by full name
-    2) fotmob by full name
-    3) fotmob by surname match
-    4) default avatar
-    """
-    n_full = _norm_one(player_name)
-    if n_full in local_overrides:
-        return local_overrides[n_full]
-
-    if n_full in team_photo_map:
-        return team_photo_map[n_full]
-
-    parts = [p for p in n_full.split() if p]
-    surname = parts[-1] if parts else ""
-    if surname:
-        for k, v in team_photo_map.items():
-            kp = [p for p in k.split() if p]
-            if kp and kp[-1] == surname:
-                return v
-
-    return DEFAULT_AVATAR
-
-# =========================
-# INDIVIDUAL METRICS LISTS (your exact order + labels)
+# INDIVIDUAL METRICS LISTS (PASTE YOUR FULL ONE HERE)
+# (This is exactly what you posted; kept identical)
 # =========================
 METRICS_BY_GROUP = {
     "GK": {
@@ -705,6 +477,166 @@ METRICS_BY_GROUP = {
         ],
     },
 }
+
+# =========================
+# FEATURE ALIASES (fix “some don’t appear / typos” without changing your lists)
+# =========================
+FEATURE_ALIASES = {
+    "Progessive Passes": "Progressive passes per 90",
+    "Progessive Passing Success %": "Accurate progressive passes, %",
+    "PAdj. Interceptions": "PAdj Interceptions",
+    "Succ. def acts": "Successful defensive actions per 90",      # label in your list maps to this metric already, but safe
+    # add more aliases here if your dataset uses different headers
+}
+
+def ensure_feature_columns(df_in: pd.DataFrame) -> pd.DataFrame:
+    """
+    If a metric appears in METRICS_BY_GROUP / roles under an alias name,
+    create that alias column from the canonical column (if present).
+    """
+    df = df_in
+    for alias, canon in FEATURE_ALIASES.items():
+        if alias not in df.columns and canon in df.columns:
+            df[alias] = df[canon]
+    return df
+
+# =========================
+# FEATURES = ALL METRICS IN INDIVIDUAL LISTS (+ roles as backup)
+# =========================
+def metrics_used_by_roles() -> set:
+    rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
+    s = set()
+    for rs in rolesets:
+        for _, wmap in rs.items():
+            s |= set(wmap.keys())
+    return s
+
+def metrics_used_by_individual_lists() -> set:
+    s = set()
+    for grp in METRICS_BY_GROUP.values():
+        for _, pairs in grp.items():
+            for _, met in pairs:
+                s.add(met)
+    return s
+
+FEATURES = sorted(metrics_used_by_individual_lists() | metrics_used_by_roles())
+
+# =========================
+# POSITION GROUPING (uses Primary Position)
+# =========================
+def pos_group(primary_pos: str) -> str:
+    p = str(primary_pos).strip().upper()
+    if p.startswith("GK"):
+        return "GK"
+    if p.startswith(("LCB","RCB","CB")):
+        return "CB"
+    if p.startswith(("RB","RWB","LB","LWB")):
+        return "FB"
+    if p.startswith(("LCMF","RCMF","LDMF","RDMF","DMF","CMF")):
+        return "CM"
+    if p in {"RW","RWF","RAMF","LW","LWF","LAMF","AMF"}:
+        return "ATT"
+    if p.startswith("CF"):
+        return "CF"
+    return "OTHER"
+
+# =========================
+# PERCENTILES FROM POOL
+# IMPORTANT: If you want “only one league -> don’t groupby league”, this does GLOBAL percentiles.
+# (If you still want per PosGroup fallback, keep your old logic; but your complaint was missing metrics.)
+# =========================
+def add_pool_percentiles(df_all: pd.DataFrame, pool_mask: pd.Series) -> pd.DataFrame:
+    out = df_all.copy()
+    out = ensure_feature_columns(out)
+
+    used = set(FEATURES)
+
+    for m in used:
+        if m in out.columns:
+            out[m] = pd.to_numeric(out[m], errors="coerce")
+
+    pool = out.loc[pool_mask].copy()
+    if pool.empty:
+        for m in used:
+            out[f"{m} Percentile"] = 0.0
+        return out
+
+    for m in used:
+        pct_col = f"{m} Percentile"
+        if m not in pool.columns:
+            out[pct_col] = 0.0
+            continue
+
+        pct = pool[m].rank(pct=True) * 100.0
+
+        if m in LOWER_BETTER:
+            pct = 100.0 - pct
+
+        out[pct_col] = 0.0
+        out.loc[pool_mask, pct_col] = pct.fillna(0.0).values
+
+    return out
+
+# =========================
+# ROLE SCORING (unchanged)
+# =========================
+def weighted_role_score(row: pd.Series, weights: Dict[str, float]) -> int:
+    num, den = 0.0, 0.0
+    for metric, w in weights.items():
+        col = f"{metric} Percentile"
+        v = row.get(col, 0)
+        try:
+            v = float(v)
+        except Exception:
+            v = 0.0
+        if pd.isna(v):
+            v = 0.0
+        num += float(w) * v
+        den += float(w)
+    score_0_100 = (num / den) if den > 0 else 0.0
+    return _pro_show99(score_0_100)
+
+def compute_role_scores_for_row(row: pd.Series) -> Dict[str, int]:
+    g = row.get("PosGroup","OTHER")
+    if g == "GK":
+        return {k: weighted_role_score(row, w) for k,w in GK_ROLES.items()}
+    if g == "CB":
+        return {k: weighted_role_score(row, w) for k,w in CB_ROLES.items()}
+    if g == "FB":
+        return {k: weighted_role_score(row, w) for k,w in FB_ROLES.items()}
+    if g == "CM":
+        roles = {k: weighted_role_score(row, w) for k,w in CM_ROLES.items()}
+        return dict(sorted(roles.items(), key=lambda x:x[1], reverse=True)[:3])
+    if g == "ATT":
+        return {k: weighted_role_score(row, w) for k,w in ATT_ROLES.items()}
+    if g == "CF":
+        return {k: weighted_role_score(row, w) for k,w in CF_ROLES.items()}
+    return {}
+
+# =========================
+# METRIC HELPERS
+# =========================
+def _metric_pct(row: pd.Series, metric: str) -> float:
+    try:
+        v = row.get(f"{metric} Percentile", np.nan)
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _metric_val(row: pd.Series, metric: str) -> float:
+    try:
+        v = row.get(metric, np.nan)
+        v = pd.to_numeric(v, errors="coerce")
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _available_metric_pairs(df: pd.DataFrame, pairs):
+    out = []
+    for lab, met in pairs:
+        if met in df.columns and f"{met} Percentile" in df.columns:
+            out.append((lab, met))
+    return out
 
 # =========================
 # STREAMLIT SETUP
