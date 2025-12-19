@@ -1819,7 +1819,7 @@ plt.close(fig)
 # ============================== END FEATURE R ==========================================
 
 # =========================
-# FEATURE — TEAM PERFORMANCE (Scatter like Player Performance)
+# FEATURE — TEAM PERFORMANCE
 # =========================
 from io import BytesIO
 import os
@@ -1941,6 +1941,7 @@ LOWER_BETTER = {
     "Goals conceded",
     "Conceded goals",
     "xG per shot against",
+    "PPDA",
 }
 
 # -------------------------------------------------
@@ -1956,7 +1957,7 @@ y_vals = pool[y_metric].to_numpy(float)
 ax.set_xlim(*padded_limits(x_vals))
 ax.set_ylim(*padded_limits(y_vals))
 
-# Flip axis if defensive-against metric
+# Flip axis if lower is better
 if y_metric in LOWER_BETTER:
     ax.invert_yaxis()
 
@@ -1997,18 +1998,18 @@ for _, r in pool.iterrows():
         va="bottom",
         zorder=6 if r["Team"] == team_name else 5,
     )
-    t.set_path_effects([
-        pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)
-    ])
+    t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
 
-# Axes
+# Axis labels
+def y_label_text(metric):
+    if metric == "PPDA":
+        return "PPDA (Pressing)"
+    if metric in {"xGA", "Goals Conceded", "Goals conceded", "Conceded goals"}:
+        return f"{metric} (lower = better)"
+    return metric
+
 ax.set_xlabel(x_metric, fontsize=14, fontweight="semibold", color="#f5f5f5")
-ax.set_ylabel(
-    f"{y_metric} (lower = better)" if y_metric in LOWER_BETTER else y_metric,
-    fontsize=14,
-    fontweight="semibold",
-    color="#f5f5f5",
-)
+ax.set_ylabel(y_label_text(y_metric), fontsize=14, fontweight="semibold", color="#f5f5f5")
 
 ax.grid(True, linewidth=0.7, alpha=0.25)
 ax.tick_params(colors="#e5e7eb")
@@ -2041,6 +2042,7 @@ st.download_button(
 )
 
 plt.close(fig)
+
 
 
 
