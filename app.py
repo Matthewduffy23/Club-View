@@ -46,10 +46,10 @@ TEAM_PROFILES = {
         "PERFORMANCE_IMAGE_PATH": "images/chengugraph.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
-        "OVERALL": 99,
+        "OVERALL": 95,
         "ATT_HDR": 89,
-        "POS_HDR": 88,
-        "DEF_HDR": 90,
+        "POS_HDR": 77,
+        "DEF_HDR": 96,
         "AVG_AGE": 29.4,
         "LEAGUE_POSITION": 3,
         "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/737052/squad/chengdu-rongcheng-fc",
@@ -60,11 +60,11 @@ TEAM_PROFILES = {
         "PERFORMANCE_IMAGE_PATH": "images/beijinggraph.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
-        "OVERALL": 90,
-        "ATT_HDR": 88,
-        "POS_HDR": 86,
-        "DEF_HDR": 87,
-        "AVG_AGE": 28.5,
+        "OVERALL": 76,
+        "ATT_HDR": 81,
+        "POS_HDR": 95,
+        "DEF_HDR": 73,
+        "AVG_AGE": 29.8,
         "LEAGUE_POSITION": 4,
         "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/4177/squad/beijing-guoan",  
     },
@@ -898,10 +898,10 @@ crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri  = img_to_data_uri(FLAG_PATH)
 
 # Tooltip texts (exact)
-TIP_OVERALL = "Weighted percentile scoring vs others in League. Overall = xPoints"
+TIP_OVERALL = "Weighted percentile scoring vs others in League. Overall = xPoints & Points"
 TIP_ATT     = "Weighted percentile scoring vs others in League. ATT = Chances Created & Goals"
 TIP_POS     = "Weighted percentile scoring vs others in League. POS = Possession, Passing & Territory"
-TIP_DEF     = "Weighted percentile scoring vs others in League. DEF Chances Conceded."
+TIP_DEF     = "Weighted percentile scoring vs others in League. DEF Chances & Goals Conceded."
 
 header_html = (
 f"<div class='header-shell'>"
