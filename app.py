@@ -1141,11 +1141,22 @@ for i, row in df_disp.iterrows():
                 st.info("No available metrics found for this player (missing columns or no computed percentiles).")
 
 
-# ============================== SCATTERPLOT — Player Metrics (raw values, team labels by default, medians) ==============================
-st.markdown("---")
-st.header("📈 Player Metrics")
-
+# =========================
+# SCATTERPLOT (Club View) — Player Metrics
+# Visible controls ONLY:
+#   - Position group
+#   - Minutes range (default 1000–5000)
+#   - X metric / Y metric (footballing metrics only, RAW values)
+#   - Toggle: Label ALL players (team players labeled by default)
+# Plot:
+#   - TEAM_NAME players highlighted red
+#   - Median reference lines on BOTH axes
+# =========================
+import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+
+st.markdown("---")
+st.markdown("<div class='section-title'>PLAYER METRICS</div>", unsafe_allow_html=True)
 
 # ---- helpers ----
 def _as_num(s):
@@ -1157,7 +1168,7 @@ def _first_existing(cols, candidates):
             return c
     return None
 
-def nice_step(vmin, vmax, target_ticks=12):
+def _nice_step(vmin, vmax, target_ticks=12):
     import math
     span = abs(vmax - vmin)
     if span <= 0 or not math.isfinite(span):
@@ -1177,16 +1188,7 @@ def nice_step(vmin, vmax, target_ticks=12):
         k = 10
     return k * power
 
-def padded_limits(arr, pad_frac=0.06, headroom=0.03):
-    a_min, a_max = float(np.nanmin(arr)), float(np.nanmax(arr))
-    if a_min == a_max:
-        a_min -= 1e-6
-        a_max += 1e-6
-    span = (a_max - a_min)
-    pad = span * pad_frac
-    return a_min - pad, a_max + pad + span * headroom
-
-def decimals(step):
+def _decimals(step):
     if step >= 1:
         return 0
     if step >= 0.1:
@@ -1195,233 +1197,202 @@ def decimals(step):
         return 2
     return 3
 
-# ---- footballing metrics only (raw values) ----
-# Start from numeric columns, remove non-football / helper / percentile columns
-numeric_cols = df_all.select_dtypes(include="number").columns.tolist()
+def _padded_limits(arr, pad_frac=0.06, headroom=0.03):
+    a = pd.Series(arr).dropna()
+    if a.empty:
+        return (0, 1)
+    a_min, a_max = float(a.min()), float(a.max())
+    if a_min == a_max:
+        a_min -= 1e-6
+        a_max += 1e-6
+    span = a_max - a_min
+    pad = span * pad_frac
+    return a_min - pad, a_max + pad + span * headroom
 
-# remove "Percentile" computed columns + obvious non-football columns
-bad_numeric = {
-    "RowID",
-    "Age", "Age_num",
-    mins_col,
-}
-metric_cols = [
-    c for c in numeric_cols
-    if c not in bad_numeric
-    and not str(c).endswith(" Percentile")
-]
+# ---- footballing metrics only (RAW values) ----
+# Use role-metric universe so we don't expose non-football/helper columns.
+FEATURES_SCATTER = sorted([m for m in metrics_used_by_roles() if m in df_all.columns])
 
-# if you have a curated FEATURES list elsewhere, prefer it:
-# FEATURES = [...]
-# metric_cols = [c for c in FEATURES if c in df_all.columns and c in metric_cols]
+# Keep only columns that can actually be numeric
+metric_cols = []
+for c in FEATURES_SCATTER:
+    s = _as_num(df_all[c])
+    if s.notna().any():
+        metric_cols.append(c)
 
-# ---- UI ----
-pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
-default_pos = "CB" if "CB" in pos_options else pos_options[0]
-
-x_default_candidates = ["Non-penalty goals per 90", "Progressive passes per 90", "xG per 90"]
-y_default_candidates = ["xG per 90", "Aerial duels won, %", "xA per 90"]
-
-x_default = _first_existing(metric_cols, x_default_candidates) or (metric_cols[0] if metric_cols else None)
-y_default = _first_existing(metric_cols, y_default_candidates) or (metric_cols[1] if len(metric_cols) > 1 else x_default)
-
-with st.expander("Scatter settings", expanded=False):
-    c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.2, 1.6])
-
-    with c1:
-        pos_pick = st.selectbox(
-            "Position group",
-            pos_options,
-            index=pos_options.index(default_pos),
-            key="club_sc_pos",
-        )
-
-        max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
-        m_min, m_max = st.slider(
-            "Minutes filter",
-            0, max_m,
-            (1000, min(5000, max_m)),  # default > 1,000
-            step=10,
-            key="club_sc_mins",
-        )
-
-    with c2:
-        x_metric = st.selectbox(
-            "X-axis",
-            metric_cols,
-            index=(metric_cols.index(x_default) if x_default in metric_cols else 0),
-            key="club_sc_x",
-        )
-
-    with c3:
-        y_metric = st.selectbox(
-            "Y-axis",
-            metric_cols,
-            index=(metric_cols.index(y_default) if y_default in metric_cols else min(1, len(metric_cols) - 1)),
-            key="club_sc_y",
-        )
-
-    with c4:
-        # labels: TEAM players on by default, plus optional label-all toggle
-        label_team = st.toggle("Label team players", value=True, key="club_sc_lbl_team")
-        label_all = st.toggle("Label every player", value=False, key="club_sc_lbl_all")
-
-    # ticks + canvas/headroom (kept lightweight but same spirit)
-    tick_mode = st.selectbox(
-        "Tick spacing",
-        ["Auto (recommended)", "0.05", "0.1", "0.2", "0.5", "1.0"],
-        index=0,
-        key="club_sc_tick_mode",
-    )
-    label_size = st.slider("Label size", 8, 20, 12, 1, key="club_sc_lbl_sz")
-    point_alpha = st.slider("Point opacity", 0.2, 1.0, 0.92, 0.02, key="club_sc_alpha")
-    point_size = st.slider("Point size", 24, 300, 120, 2, key="club_sc_pts")
-    marker = st.selectbox("Marker", ["o", "s", "^", "D"], index=0, key="club_sc_marker")
-    show_medians = st.checkbox("Show median reference lines", value=True, key="club_sc_medians")
-
-    canvas_preset = st.selectbox("Canvas size (px)", ["1280×720", "1600×900", "1920×820", "1920×1080"], index=1, key="club_sc_canvas")
-    w_px, h_px = map(int, canvas_preset.replace("×", "x").replace(" ", "").split("x"))
-    render_exact = st.checkbox("Render exact pixels (PNG)", value=True, key="club_sc_exact")
-
-# ---- build pool (raw values; no percentile columns used) ----
-pool_sc = df_all.copy()
-pool_sc[mins_col] = _as_num(pool_sc[mins_col]).fillna(0)
-
-pool_sc = pool_sc[pool_sc["PosGroup"].astype(str) == pos_pick]
-pool_sc = pool_sc[pool_sc[mins_col].between(m_min, m_max)]
-
-# coerce chosen axes to numeric + drop missing
-pool_sc[x_metric] = _as_num(pool_sc[x_metric])
-pool_sc[y_metric] = _as_num(pool_sc[y_metric])
-pool_sc = pool_sc.dropna(subset=[x_metric, y_metric, "Player", "Team"])
-
-if pool_sc.empty:
-    st.info("No players in the pool after filters.")
+if not metric_cols:
+    st.info("No footballing metric columns found for scatter (check CSV columns).")
 else:
-    team_mask = pool_sc["Team"].astype(str).str.strip().eq(TEAM_NAME)
+    # ---- controls (ONLY requested ones) ----
+    pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
+    default_pos = "CB" if "CB" in pos_options else pos_options[0]
 
-    others = pool_sc[~team_mask].copy()
-    team_players = pool_sc[team_mask].copy()
-
-    # ---- plot ----
-    fig, ax = plt.subplots(figsize=(w_px / 100, h_px / 100), dpi=100)
-    fig.patch.set_facecolor("#0e0e0f")
-    ax.set_facecolor("#0f151f")
-
-    x_vals = pool_sc[x_metric].to_numpy(float)
-    y_vals = pool_sc[y_metric].to_numpy(float)
-
-    xlim = padded_limits(x_vals)
-    ylim = padded_limits(y_vals)
-    ax.set_xlim(*xlim)
-    ax.set_ylim(*ylim)
-
-    # points
-    ax.scatter(
-        others[x_metric], others[y_metric],
-        s=point_size, alpha=float(point_alpha),
-        edgecolors="none", linewidths=0.0,
-        marker=marker, c="#cbd5e1", zorder=2
-    )
-    ax.scatter(
-        team_players[x_metric], team_players[y_metric],
-        s=point_size * 1.15, alpha=0.98,
-        edgecolors="white", linewidths=1.2,
-        marker=marker, c="#C81E1E", zorder=4
+    # sensible defaults (fallbacks if missing)
+    x_default = _first_existing(metric_cols, ["Progressive passes per 90", "xG per 90", "Passes per 90"]) or metric_cols[0]
+    y_default = _first_existing(metric_cols, ["Aerial duels won, %", "Non-penalty goals per 90", "xA per 90"]) or (
+        metric_cols[1] if len(metric_cols) > 1 else metric_cols[0]
     )
 
-    # medians (both axes)
-    if show_medians:
+    with st.expander("Scatter settings", expanded=False):
+        c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.2, 1.6])
+
+        with c1:
+            pos_pick = st.selectbox(
+                "Position group",
+                pos_options,
+                index=pos_options.index(default_pos),
+                key="club_sc_pos",
+            )
+
+            max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
+            m_min, m_max = st.slider(
+                "Minutes filter",
+                0, max_m,
+                (1000, min(5000, max_m)),  # DEFAULT > 1,000
+                step=10,
+                key="club_sc_mins",
+            )
+
+        with c2:
+            x_metric = st.selectbox(
+                "X metric",
+                metric_cols,
+                index=(metric_cols.index(x_default) if x_default in metric_cols else 0),
+                key="club_sc_x",
+            )
+
+        with c3:
+            y_metric = st.selectbox(
+                "Y metric",
+                metric_cols,
+                index=(metric_cols.index(y_default) if y_default in metric_cols else min(1, len(metric_cols) - 1)),
+                key="club_sc_y",
+            )
+
+        with c4:
+            label_all_players = st.checkbox("Label all players", value=False, key="club_sc_label_all")
+
+    # ---- pool ----
+    pool = df_all.copy()
+    pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
+
+    pool = pool[pool["PosGroup"].astype(str) == pos_pick]
+    pool = pool[pool[mins_col].between(m_min, m_max)]
+
+    pool[x_metric] = _as_num(pool[x_metric])
+    pool[y_metric] = _as_num(pool[y_metric])
+    pool = pool.dropna(subset=[x_metric, y_metric, "Player", "Team"])
+
+    if pool.empty:
+        st.info("No players in the pool after filters.")
+    else:
+        team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
+        others = pool[~team_mask].copy()
+        team_players = pool[team_mask].copy()
+
+        # ---- plot ----
+        fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
+        fig.patch.set_facecolor("#0e0e0f")
+        ax.set_facecolor("#0f151f")
+
+        x_vals = pool[x_metric].to_numpy(float)
+        y_vals = pool[y_metric].to_numpy(float)
+
+        xlim = _padded_limits(x_vals)
+        ylim = _padded_limits(y_vals)
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+
+        # points (keep your existing style)
+        ax.scatter(
+            others[x_metric], others[y_metric],
+            s=60, alpha=0.55,
+            edgecolors="none",
+            c="#cbd5e1",
+            zorder=2
+        )
+        ax.scatter(
+            team_players[x_metric], team_players[y_metric],
+            s=110, alpha=0.98,
+            edgecolors="white", linewidths=1.2,
+            c="#C81E1E",
+            zorder=4
+        )
+
+        # median reference lines (both axes)
         med_x = float(np.nanmedian(x_vals))
         med_y = float(np.nanmedian(y_vals))
         ax.axvline(med_x, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
         ax.axhline(med_y, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-    # labels (TEAM players by default; optional label all)
-    import matplotlib as mpl
-    from matplotlib import patheffects as pe
-    try:
-        from adjustText import adjust_text
-        _HAS_ADJUST = True
-    except Exception:
-        _HAS_ADJUST = False
-
-    texts = []
-    def _label_df(df_lbl, color="#f5f5f5", fs=12):
-        for _, r in df_lbl.iterrows():
-            name = str(r.get("Player", "")).strip()
-            if not name:
-                continue
-            x = r.get(x_metric, np.nan)
-            y = r.get(y_metric, np.nan)
-            if pd.isna(x) or pd.isna(y):
-                continue
-            t = ax.annotate(
-                name, (float(x), float(y)),
-                xytext=(10, 10), textcoords="offset points",
-                fontsize=fs, fontweight="semibold", color=color,
-                ha="left", va="bottom", zorder=6
-            )
-            t.set_path_effects([pe.withStroke(linewidth=2.0, foreground="#111827", alpha=0.9)])
-            texts.append(t)
-
-    if label_all:
-        _label_df(others, color="#e5e7eb", fs=max(8, label_size - 1))
-        _label_df(team_players, color="#ffffff", fs=label_size)
-    else:
-        if label_team:
-            _label_df(team_players, color="#ffffff", fs=label_size)
-
-    # attempt declutter if adjustText is available and we're labeling lots
-    if _HAS_ADJUST and texts and (label_all or (label_team and len(team_players) >= 8)):
+        # labels: TEAM players by default; optional label all
+        from matplotlib import patheffects as pe
         try:
-            adjust_text(
-                texts, ax=ax,
-                only_move={"points": "y", "text": "xy"},
-                autoalign=True, precision=0.001, lim=150,
-                expand_text=(1.05, 1.10), expand_points=(1.05, 1.10),
-                force_text=(0.08, 0.12), force_points=(0.08, 0.12)
-            )
+            from adjustText import adjust_text
+            _HAS_ADJUST = True
         except Exception:
-            pass
+            _HAS_ADJUST = False
 
-    # axes + denser ticks
-    ax.set_xlabel(x_metric, fontsize=14, fontweight="semibold", color="#f5f5f5")
-    ax.set_ylabel(y_metric, fontsize=14, fontweight="semibold", color="#f5f5f5")
+        texts = []
 
-    if tick_mode.startswith("Auto"):
-        step_x = nice_step(*xlim, target_ticks=12)
-        step_y = nice_step(*ylim, target_ticks=12)
-    else:
-        step_x = step_y = float(tick_mode)
+        def _annotate_df(df_lbl, color, fontsize):
+            for _, r in df_lbl.iterrows():
+                nm = str(r.get("Player", "")).strip()
+                if not nm:
+                    continue
+                xv = r.get(x_metric, np.nan)
+                yv = r.get(y_metric, np.nan)
+                if pd.isna(xv) or pd.isna(yv):
+                    continue
+                t = ax.annotate(
+                    nm, (float(xv), float(yv)),
+                    textcoords="offset points", xytext=(8, 8),
+                    ha="left", va="bottom",
+                    fontsize=fontsize, fontweight="semibold",
+                    color=color, zorder=6, clip_on=True
+                )
+                t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
+                texts.append(t)
 
-    ax.xaxis.set_major_locator(MultipleLocator(base=step_x))
-    ax.yaxis.set_major_locator(MultipleLocator(base=step_y))
-    ax.xaxis.set_major_formatter(FormatStrFormatter(f'%.{decimals(step_x)}f'))
-    ax.yaxis.set_major_formatter(FormatStrFormatter(f'%.{decimals(step_y)}f'))
-    ax.minorticks_off()
+        # TEAM labels always on
+        _annotate_df(team_players, color="#ffffff", fontsize=10)
 
-    ax.grid(True, linewidth=0.9, alpha=0.25)
-    ax.tick_params(colors="#e5e7eb")
-    for spine in ax.spines.values():
-        spine.set_color("#6b7280")
-        spine.set_linewidth(0.9)
+        # toggle: label everyone
+        if label_all_players:
+            _annotate_df(others, color="#e5e7eb", fontsize=9)
 
-    # extra top gap/headroom via subplots_adjust (same idea as your framework)
-    top_gap_px = 90
-    top_frac = 1.0 - (top_gap_px / float(h_px))
-    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.105, top=top_frac)
+        if _HAS_ADJUST and label_all_players and texts:
+            try:
+                adjust_text(
+                    texts, ax=ax,
+                    only_move={"points": "y", "text": "xy"},
+                    autoalign=True, precision=0.001, lim=120,
+                    expand_text=(1.03, 1.06), expand_points=(1.03, 1.06),
+                    force_text=(0.06, 0.10), force_points=(0.06, 0.10)
+                )
+            except Exception:
+                pass
 
-    # render
-    if render_exact:
-        from io import BytesIO
-        buf = BytesIO()
-        fig.savefig(buf, format="png", dpi=100, facecolor=fig.get_facecolor(), bbox_inches="tight")
-        buf.seek(0)
-        st.image(buf, width=w_px)
-    else:
-        st.pyplot(fig, use_container_width=False)
-# ==========================================================================================================
+        # axes + denser ticks (auto)
+        ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
+        ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
+
+        step_x = _nice_step(*xlim, target_ticks=12)
+        step_y = _nice_step(*ylim, target_ticks=12)
+        ax.xaxis.set_major_locator(MultipleLocator(base=step_x))
+        ax.yaxis.set_major_locator(MultipleLocator(base=step_y))
+        ax.xaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_x)}f"))
+        ax.yaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_y)}f"))
+
+        ax.grid(True, linewidth=0.7, alpha=0.25)
+        ax.tick_params(colors="#e5e7eb")
+        for spine in ax.spines.values():
+            spine.set_color("#6b7280")
+            spine.set_linewidth(0.9)
+
+        ax.set_title(f"{pos_pick} — {TEAM_NAME} highlighted", color="#f5f5f5", fontsize=14, pad=12, fontweight="semibold")
+        st.pyplot(fig, use_container_width=True)
+
 
 
 
