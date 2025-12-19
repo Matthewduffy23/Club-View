@@ -964,35 +964,6 @@ if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
-if notes:
-    team_notes_html = f"""
-    <div style="margin-top:14px;margin-bottom:26px;">
-
-      <div style="margin-bottom:14px;">
-        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
-          Style
-        </div>
-        {_chip_row(notes.get("style", []), "#bfdbfe")}
-      </div>
-
-      <div style="margin-bottom:14px;">
-        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
-          Strengths
-        </div>
-        {_chip_row(notes.get("strengths", []), "#a7f3d0")}
-      </div>
-
-      <div>
-        <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">
-          Weaknesses
-        </div>
-        {_chip_row(notes.get("weaknesses", []), "#fecaca")}
-      </div>
-
-    </div>
-    """
-    st.markdown(team_notes_html, unsafe_allow_html=True)
-
 # =========================
 # TEAM NOTES (MANUAL – TWO TEAMS ONLY)
 # Edit text HERE ONLY
@@ -1054,6 +1025,9 @@ def _chip_row(items, bg):
 # ---- SAFE lookup (no NameError possible) ----
 notes = TEAM_NOTES.get(str(TEAM_NAME).strip().lower())
 
+# =========================
+# TEAM NOTES — DISPLAY
+# =========================
 if notes:
     team_notes_html = f"""
     <div style="margin-top:14px;margin-bottom:26px;">
