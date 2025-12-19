@@ -902,53 +902,27 @@ header, footer { visibility:hidden; }
   visibility: visible;
   opacity: 1;
 }
-# ✅ FIXED REPLACEMENT (everything CSS stays INSIDE the triple-quoted string)
-
 st.markdown("""
 <style>
 
-/* Keep role labels on ONE line */
-.m-label{
-  white-space: nowrap !important;
-}
-
-/* Give content more usable width on the right (so it isn't covered) */
-@media (max-width: 600px){
-  .block-container{
-    padding-right: 110px !important;
-  }
-
-  /* also protect the metrics sections + expanders */
-  .m-sec,
-  [data-testid="stExpander"],
-  [data-testid="stExpanderHeader"]{
-    margin-right: 110px !important;
-  }
-}
-
-st.markdown("""
-<style>
-
-/* Keep role labels on ONE line */
+/* Keep role / metric labels on ONE line */
 .m-label{
   white-space: nowrap;
 }
 
-/* Give content more usable width on the right */
-@media (max-width: 600px){
-  .block-container{
-    padding-right: 110px;
-  }
+/* Allow label column to actually use full width */
+.m-row{
+  justify-content: flex-start;
+}
 
-  .m-sec,
-  [data-testid="stExpander"],
-  [data-testid="stExpanderHeader"]{
-    margin-right: 110px;
-  }
+/* Optional: give labels maximum space */
+.m-right{
+  margin-left: 12px;
 }
 
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
