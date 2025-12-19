@@ -970,7 +970,7 @@ else:
 # =========================
 
 TEAM_NOTES = {
-    "chengdu rongcheng": {
+    "Chengdu Rongcheng": {
         "style": [
             "Possession",
             "Pressing",
@@ -988,7 +988,7 @@ TEAM_NOTES = {
         ],
     },
 
-    "shanghai port": {
+    "Beijing Guoan": {
         "style": [
             "High Tempo",
             "Vertical Attacks",
