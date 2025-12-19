@@ -902,8 +902,10 @@ header, footer { visibility:hidden; }
   visibility: visible;
   opacity: 1;
 }
-</style>
-""", unsafe_allow_html=True)
+# ✅ FIXED REPLACEMENT (everything CSS stays INSIDE the triple-quoted string)
+
+st.markdown("""
+<style>
 
 /* Keep role labels on ONE line */
 .m-label{
@@ -924,10 +926,11 @@ header, footer { visibility:hidden; }
   }
 }
 
+</style>
+""", unsafe_allow_html=True)
 
-# IMPORTANT:
-# You had: st.markdown("""<style>  // ...""")
-# That "//" is not valid in Python. Use "#" comments outside strings, like above.
+# (No // comments in Python. Use # like this.)
+
 
 
 # =========================
