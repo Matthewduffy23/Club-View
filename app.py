@@ -1200,8 +1200,6 @@ f"</div>"
 )
 st.markdown(header_html, unsafe_allow_html=True)
 
-st.markdown("<div class='section-title'>PLAYERS</div>", unsafe_allow_html=True)
-players_helper()  # <-- edit default text inside the function if you want
 
 
 # =========================
@@ -1519,7 +1517,8 @@ df_disp = df_disp.sort_values(mins_col, ascending=False).reset_index(drop=True)
 # =========================
 # PLAYERS
 # =========================
-st.markdown("<div class='section-title' style='margin-top:10px;'>PLAYERS</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>PLAYERS</div>", unsafe_allow_html=True)
+players_helper()  # <-- edit default text inside the function if you want
 
 local_overrides = load_local_photo_overrides(PLAYER_PHOTO_OVERRIDES_JSON)
 fm_map = fotmob_photo_map(FOTMOB_TEAM_URL)
