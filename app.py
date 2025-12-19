@@ -11,6 +11,14 @@
 # 8) Goalkeeper: Conceded goals per 90 is LOWER = BETTER (percentiles inverted)
 # 9) China flag: maps "China PR" -> CN
 # 10) FotMob surname/photo match (cached) + optional hidden local JSON overrides (no UI shown)
+#
+# Additional fixes requested:
+# A) Header MID -> POS (label + variable)
+# B) Tooltip text exactly as requested (POS wording + DEF wording)
+# C) Add Beijing Guoan option (beijing.png crest + beijinggraph.png graph)
+# D) Remove edit options up top for inputting figures (NO custom header expander)
+# E) Fix NameError crash in Individual Metrics by adding _available_metric_pairs + _metric_pct/_metric_val helpers
+# F) Ensure selected team flows through ALL sections (cards, charts, highlights, FotMob, filenames)
 # ------------------------------------------------------------
 
 import os
@@ -18,7 +26,7 @@ import re
 import json
 import base64
 import unicodedata
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Optional
 
 import pandas as pd
 import numpy as np
@@ -30,7 +38,7 @@ import streamlit as st
 # =========================
 CSV_PATH = "Chinaall.csv"
 
-# --- Default profiles (you can keep adding teams here) ---
+# --- Team profiles (extend here) ---
 TEAM_PROFILES = {
     "Chengdu Rongcheng": {
         "TEAM_NAME": "Chengdu Rongcheng",
@@ -40,7 +48,7 @@ TEAM_PROFILES = {
         "LEAGUE_TEXT": "Super League",
         "OVERALL": 99,
         "ATT_HDR": 89,
-        "POS_HDR": 88,   # renamed from MID_HDR -> POS_HDR
+        "POS_HDR": 88,
         "DEF_HDR": 90,
         "AVG_AGE": 29.4,
         "LEAGUE_POSITION": 3,
@@ -52,27 +60,20 @@ TEAM_PROFILES = {
         "PERFORMANCE_IMAGE_PATH": "images/beijinggraph.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
-        # put your real defaults here; user can override in-app too
         "OVERALL": 90,
         "ATT_HDR": 88,
         "POS_HDR": 86,
         "DEF_HDR": 87,
         "AVG_AGE": 28.5,
         "LEAGUE_POSITION": 4,
-        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/??/squad/beijing-guoan",  # optional; replace if you want
+        "FOTMOB_TEAM_URL": "",  # optional
     },
 }
 
 DEFAULT_TEAM_KEY = "Chengdu Rongcheng"
-
 DEFAULT_AVATAR = "https://i.redd.it/43axcjdu59nd1.jpeg"
 
 # Optional hidden local override file (NOT exposed in UI)
-# Format:
-# {
-#   "felipe": "https://....png",
-#   "liu dianzuo": "https://....png"
-# }
 PLAYER_PHOTO_OVERRIDES_JSON = "player_photos.json"
 
 # =========================
@@ -145,7 +146,7 @@ TWEMOJI_SPECIAL = {
 }
 COUNTRY_TO_CC = {
     "china":"cn",
-    "china pr":"cn",  # IMPORTANT
+    "china pr":"cn",
     "england":"eng","scotland":"sct","wales":"wls",
     "united kingdom":"gb","great britain":"gb",
     "brazil":"br","argentina":"ar","spain":"es","france":"fr","germany":"de","italy":"it","portugal":"pt",
@@ -237,9 +238,7 @@ GK_ROLES = {
 }
 
 # LOWER is better -> invert percentile
-LOWER_BETTER = {
-    "Conceded goals per 90",  # IMPORTANT for GK
-}
+LOWER_BETTER = {"Conceded goals per 90"}
 
 # =========================
 # POSITION GROUPING (uses Primary Position)
@@ -271,8 +270,8 @@ def weighted_role_score(row: pd.Series, weights: Dict[str, float]) -> int:
             v = 0.0
         if pd.isna(v):
             v = 0.0
-        num += w * v
-        den += w
+        num += float(w) * v
+        den += float(w)
     score_0_100 = (num / den) if den > 0 else 0.0
     return _pro_show99(score_0_100)
 
@@ -386,13 +385,44 @@ def add_pool_percentiles(df_all: pd.DataFrame, pool_mask: pd.Series, min_group: 
     return out
 
 # =========================
+# METRIC HELPERS (fix NameError + ensure correct display)
+# =========================
+def _metric_pct(row: pd.Series, metric: str) -> float:
+    """Returns computed percentile for metric (expects '<metric> Percentile' col)."""
+    try:
+        v = row.get(f"{metric} Percentile", np.nan)
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _metric_val(row: pd.Series, metric: str) -> float:
+    """Returns raw value for metric."""
+    try:
+        v = row.get(metric, np.nan)
+        v = pd.to_numeric(v, errors="coerce")
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _available_metric_pairs(df: pd.DataFrame, pairs):
+    """
+    Filters (label, metric) pairs to only those where:
+    - raw metric column exists
+    - percentile column exists
+    """
+    out = []
+    for lab, met in pairs:
+        if met in df.columns and f"{met} Percentile" in df.columns:
+            out.append((lab, met))
+    return out
+
+# =========================
 # FotMob photo scraping (cached)
 # =========================
 @st.cache_data(show_spinner=False, ttl=60*60*12)
 def fotmob_photo_map(team_url: str) -> Dict[str, str]:
     """
     Returns mapping from normalized full name -> image url (best-effort).
-    This is intentionally conservative; if parsing fails, returns {}.
     """
     try:
         if not team_url:
@@ -421,7 +451,7 @@ def load_local_photo_overrides(path: str) -> Dict[str, str]:
         with open(path, "r", encoding="utf-8") as f:
             obj = json.load(f)
         if isinstance(obj, dict):
-            return { _norm_one(k): str(v).strip() for k,v in obj.items() if str(v).strip() }
+            return {_norm_one(k): str(v).strip() for k, v in obj.items() if str(v).strip()}
         return {}
     except Exception:
         return {}
@@ -638,7 +668,7 @@ METRICS_BY_GROUP = {
             ("Smart Passes", "Smart passes per 90"),
         ],
     },
-    "CF": {  # STRIKER
+    "CF": {
         "ATTACKING": [
             ("Crosses", "Crosses per 90"),
             ("Crossing Accuracy %", "Accurate crosses, %"),
@@ -780,7 +810,6 @@ header, footer { visibility:hidden; }
 
 .header-info{ margin-top:10px; display:flex; flex-direction:column; gap:4px; font-size:14px; color:#b0b0b3; }
 
-/* --- tooltip wrapper for header pills --- */
 .tip {
   position: relative;
   display: inline-flex;
@@ -839,40 +868,36 @@ mins_col = detect_minutes_col(df_all)
 df_all[mins_col] = pd.to_numeric(df_all[mins_col], errors="coerce").fillna(0)
 
 # =========================
-# TEAM SELECTOR (top) + OPTIONAL OVERRIDES
+# TEAM SELECTOR (top)
 # =========================
 team_options = list(TEAM_PROFILES.keys())
 default_idx = team_options.index(DEFAULT_TEAM_KEY) if DEFAULT_TEAM_KEY in team_options else 0
-
-# Keep this ABOVE the header so everything below uses the chosen team
 selected_team_key = st.selectbox("Team", options=team_options, index=default_idx, key="team_select")
 
-base_profile = TEAM_PROFILES.get(selected_team_key, TEAM_PROFILES[DEFAULT_TEAM_KEY]).copy()
+profile = TEAM_PROFILES.get(selected_team_key, TEAM_PROFILES[DEFAULT_TEAM_KEY])
 
-with st.expander("Custom team header values (optional)", expanded=False):
-    # Allows custom input for either Chengdu or Beijing (or any future team)
-    TEAM_NAME = st.text_input("Team name", value=base_profile["TEAM_NAME"], key="ov_team_name")
-    LEAGUE_TEXT = st.text_input("League text", value=base_profile["LEAGUE_TEXT"], key="ov_league_text")
-    LEAGUE_POSITION = st.number_input("League position", min_value=1, max_value=40, value=int(base_profile["LEAGUE_POSITION"]), step=1, key="ov_league_pos")
-    AVG_AGE = st.number_input("Average age", min_value=14.0, max_value=45.0, value=float(base_profile["AVG_AGE"]), step=0.1, key="ov_avg_age")
+TEAM_NAME = profile["TEAM_NAME"]
+LEAGUE_TEXT = profile.get("LEAGUE_TEXT","")
+LEAGUE_POSITION = profile.get("LEAGUE_POSITION", 1)
+AVG_AGE = float(profile.get("AVG_AGE", 0.0))
 
-    OVERALL = st.number_input("Overall (0–99)", min_value=0, max_value=99, value=int(base_profile["OVERALL"]), step=1, key="ov_overall")
-    ATT_HDR = st.number_input("ATT (0–99)", min_value=0, max_value=99, value=int(base_profile["ATT_HDR"]), step=1, key="ov_att")
-    POS_HDR = st.number_input("POS (0–99)", min_value=0, max_value=99, value=int(base_profile["POS_HDR"]), step=1, key="ov_pos")
-    DEF_HDR = st.number_input("DEF (0–99)", min_value=0, max_value=99, value=int(base_profile["DEF_HDR"]), step=1, key="ov_def")
+OVERALL = int(profile.get("OVERALL", 0))
+ATT_HDR = int(profile.get("ATT_HDR", 0))
+POS_HDR = int(profile.get("POS_HDR", 0))
+DEF_HDR = int(profile.get("DEF_HDR", 0))
 
-    CREST_PATH = st.text_input("Crest path", value=base_profile["CREST_PATH"], key="ov_crest")
-    PERFORMANCE_IMAGE_PATH = st.text_input("Performance image path", value=base_profile["PERFORMANCE_IMAGE_PATH"], key="ov_perf_img")
-    FLAG_PATH = st.text_input("Flag path (optional)", value=base_profile.get("FLAG_PATH",""), key="ov_flag")
-    FOTMOB_TEAM_URL = st.text_input("FotMob squad URL (optional)", value=base_profile.get("FOTMOB_TEAM_URL",""), key="ov_fotmob")
+CREST_PATH = profile.get("CREST_PATH","")
+PERFORMANCE_IMAGE_PATH = profile.get("PERFORMANCE_IMAGE_PATH","")
+FLAG_PATH = profile.get("FLAG_PATH","")
+FOTMOB_TEAM_URL = profile.get("FOTMOB_TEAM_URL","")
 
 # =========================
-# HEADER (compact + responsive, NOT too wide)
+# HEADER (compact + responsive)
 # =========================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri  = img_to_data_uri(FLAG_PATH)
 
-# Tooltip texts (your exact copy)
+# Tooltip texts (exact)
 TIP_OVERALL = "Weighted percentile scoring vs others in League. Overall = xPoints"
 TIP_ATT     = "Weighted percentile scoring vs others in League. ATT = Chances Created & Goals"
 TIP_POS     = "Weighted percentile scoring vs others in League. POS = Possession, Passing & Territory"
@@ -940,66 +965,23 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================
-# TEAM NOTES (Manual) — right below the team chart
-# Put this DIRECTLY under the PERFORMANCE image block
-# =========================
-
-def _chip_html(items, color):
-    if not items:
-        return "<span class='chip'>—</span>"
-    spans = [
-        f"<span style='background:{color};color:#111;padding:2px 8px;border-radius:999px;"
-        f"margin:0 8px 8px 0;display:inline-block;font-weight:800;font-size:13px;'>"
-        f"{st.utils.escape_html(t)}</span>"
-        for t in items[:20]
-    ]
-    return " ".join(spans)
-
-def _parse_tags(s: str) -> list[str]:
-    if not s:
-        return []
-    parts = re.split(r"[,\n]+", s.strip())
-    tags = []
-    for p in parts:
-        t = p.strip()
-        if not t:
-            continue
-        tags.append(t)
-    # de-dupe preserve order
-    seen = set()
-    out = []
-    for t in tags:
-        k = t.lower()
-        if k not in seen:
-            seen.add(k)
-            out.append(t)
-    return out
-
-# =========================
 # TEAM NOTES (MANUAL – EDIT HERE ONLY)
 # =========================
-
 TEAM_STYLE = [
     "Possession",
     "Pressing",
     "Structured",
 ]
-
 TEAM_STRENGTHS = [
     "Chance Prevention",
     "Game Control",
     "Pressing Intensity",
 ]
-
 TEAM_WEAKNESSES = [
     "Finishing",
     "Final 3rd Entries",
     "Set Pieces",
 ]
-
-# =========================
-# TEAM NOTES — DISPLAY (CHIPS ONLY)
-# =========================
 
 def _chip_row(items, bg):
     if not items:
@@ -1009,9 +991,9 @@ def _chip_row(items, bg):
         f"color:#0b0d12;"
         f"padding:6px 14px;"
         f"border-radius:999px;"
-        f"font-weight:600;"              # <- less bold
+        f"font-weight:600;"
         f"font-size:14px;"
-        f"margin:0 8px 10px 0;"          # <- better wrap spacing
+        f"margin:0 8px 10px 0;"
         f"display:inline-block;'>"
         f"{t}</span>"
         for t in items
@@ -1035,22 +1017,12 @@ team_notes_html = f"""
   </div>
 </div>
 """
-
 st.markdown(team_notes_html, unsafe_allow_html=True)
 
-# -------------------------------------------------------------------------
-# IMPORTANT NOTE:
-# I only have the portion of your file you pasted in-chat (up through TEAM NOTES).
-# Paste the remainder of your app below this line unchanged so the rest stays
-# "everything else exactly the same" (player cards, filters, scatter, etc.).
-# -------------------------------------------------------------------------
 # =========================
 # FEATURE — TEAM PERFORMANCE
 # =========================
 from io import BytesIO
-import os
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import patheffects as pe
 
@@ -1058,19 +1030,15 @@ st.markdown("---")
 st.markdown("<div class='section-title'>TEAM PERFORMANCE</div>", unsafe_allow_html=True)
 
 TEAM_CSV = "ChinaTeams.csv"
-
 if not os.path.exists(TEAM_CSV):
     st.error(f"ChinaTeams.csv not found at: {TEAM_CSV}")
     st.stop()
 
-# NOTE: renamed to avoid clashing with later df_team_players
 df_team_stats = pd.read_csv(TEAM_CSV)
-
 if "Team" not in df_team_stats.columns:
     st.error("ChinaTeams.csv must include a 'Team' column.")
     st.stop()
 
-# Coerce numeric columns
 for c in df_team_stats.columns:
     if c != "Team":
         df_team_stats[c] = pd.to_numeric(df_team_stats[c], errors="coerce")
@@ -1078,34 +1046,16 @@ for c in df_team_stats.columns:
 df_team_stats["Team"] = df_team_stats["Team"].astype(str).str.strip()
 df_team_stats = df_team_stats.dropna(subset=["Team"]).copy()
 
-# -------------------------------------------------
-# Metric options (football metrics only)
-# -------------------------------------------------
 PREFERRED_TEAM_METRICS = [
-    "xG",
-    "Goals",
-    "xG per shot",
-    "xGA",
-    "Goals Conceded",
-    "Goals conceded",
-    "Conceded goals",
-    "xG per shot against",
-    "Ball Possession (%)",
-    "Ball possession",
-    "Touches in Box",
-    "PPDA",
-    "Passes",
-    "Passing %",
-    "Long Passes",
-    "Passes to Final 3rd",
-    "Passes to final third",
+    "xG","Goals","xG per shot","xGA","Goals Conceded","Goals conceded","Conceded goals","xG per shot against",
+    "Ball Possession (%)","Ball possession","Touches in Box","PPDA","Passes","Passing %","Long Passes",
+    "Passes to Final 3rd","Passes to final third",
 ]
 
 numeric_cols = [
     c for c in df_team_stats.columns
     if c != "Team" and pd.api.types.is_numeric_dtype(df_team_stats[c])
 ]
-
 preferred = [c for c in PREFERRED_TEAM_METRICS if c in numeric_cols]
 extras = [c for c in numeric_cols if c not in preferred]
 TEAM_FEATURES = preferred + extras
@@ -1114,42 +1064,27 @@ if not TEAM_FEATURES:
     st.error("No numeric metric columns found.")
     st.stop()
 
-# Defaults
 x_default = "xG" if "xG" in TEAM_FEATURES else TEAM_FEATURES[0]
 y_default = "xGA" if "xGA" in TEAM_FEATURES else (TEAM_FEATURES[1] if len(TEAM_FEATURES) > 1 else TEAM_FEATURES[0])
 
 with st.expander("Team scatter settings", expanded=False):
     c1, c2 = st.columns(2)
     with c1:
-        x_metric = st.selectbox(
-            "X metric",
-            TEAM_FEATURES,
-            index=TEAM_FEATURES.index(x_default),
-            key="team_sc_x",
-        )
+        x_metric = st.selectbox("X metric", TEAM_FEATURES, index=TEAM_FEATURES.index(x_default), key="team_sc_x")
     with c2:
-        y_metric = st.selectbox(
-            "Y metric",
-            TEAM_FEATURES,
-            index=TEAM_FEATURES.index(y_default),
-            key="team_sc_y",
-        )
+        y_metric = st.selectbox("Y metric", TEAM_FEATURES, index=TEAM_FEATURES.index(y_default), key="team_sc_y")
 
 pool = df_team_stats.dropna(subset=[x_metric, y_metric]).copy()
 if pool.empty:
     st.info("No teams have data for the selected metrics.")
     st.stop()
 
-# Highlight TEAM_NAME (normalized)
-team_name = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else ""
-team_mask = pool["Team"].astype(str).str.strip().eq(team_name) if team_name else pd.Series(False, index=pool.index)
+team_name = str(TEAM_NAME).strip()
+team_mask = pool["Team"].astype(str).str.strip().eq(team_name)
 
 others = pool.loc[~team_mask].copy()
 highlight = pool.loc[team_mask].copy()
 
-# -------------------------------------------------
-# Helpers
-# -------------------------------------------------
 def padded_limits(arr, pad_frac=0.10, headroom_frac=0.06):
     a_min = float(np.nanmin(arr))
     a_max = float(np.nanmax(arr))
@@ -1157,23 +1092,10 @@ def padded_limits(arr, pad_frac=0.10, headroom_frac=0.06):
         a_min -= 1e-6
         a_max += 1e-6
     span = a_max - a_min
-    return (
-        a_min - span * pad_frac,
-        a_max + span * (pad_frac + headroom_frac),
-    )
+    return (a_min - span * pad_frac, a_max + span * (pad_frac + headroom_frac))
 
-LOWER_BETTER = {
-    "xGA",
-    "Goals Conceded",
-    "Goals conceded",
-    "Conceded goals",
-    "xG per shot against",
-    "PPDA",
-}
+LOWER_BETTER_TEAM = {"xGA","Goals Conceded","Goals conceded","Conceded goals","xG per shot against","PPDA"}
 
-# -------------------------------------------------
-# Plot
-# -------------------------------------------------
 fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
 fig.patch.set_facecolor("#0e0e0f")
 ax.set_facecolor("#0f151f")
@@ -1184,34 +1106,18 @@ y_vals = pool[y_metric].to_numpy(float)
 ax.set_xlim(*padded_limits(x_vals))
 ax.set_ylim(*padded_limits(y_vals))
 
-# Flip axis if lower is better
-if y_metric in LOWER_BETTER:
+if y_metric in LOWER_BETTER_TEAM:
     ax.invert_yaxis()
 
-# Points
-ax.scatter(
-    others[x_metric], others[y_metric],
-    s=140, alpha=0.90,
-    c="#cbd5e1",
-    edgecolors="none",
-    zorder=2
-)
+ax.scatter(others[x_metric], others[y_metric], s=140, alpha=0.90, c="#cbd5e1", edgecolors="none", zorder=2)
 
 if not highlight.empty:
-    ax.scatter(
-        highlight[x_metric], highlight[y_metric],
-        s=220, alpha=0.98,
-        c="#C81E1E",
-        edgecolors="white",
-        linewidths=1.6,
-        zorder=4
-    )
+    ax.scatter(highlight[x_metric], highlight[y_metric], s=220, alpha=0.98, c="#C81E1E",
+               edgecolors="white", linewidths=1.6, zorder=4)
 
-# Medians
 ax.axvline(np.nanmedian(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-# Labels
 for _, r in pool.iterrows():
     t = ax.annotate(
         str(r["Team"]),
@@ -1227,7 +1133,6 @@ for _, r in pool.iterrows():
     )
     t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
 
-# Axis labels
 def y_label_text(metric):
     if metric == "PPDA":
         return "PPDA (Pressing)"
@@ -1244,19 +1149,10 @@ for spine in ax.spines.values():
     spine.set_color("#6b7280")
     spine.set_linewidth(0.9)
 
-ax.set_title(
-    f"{x_metric} vs {y_metric}",
-    fontsize=14,
-    fontweight="semibold",
-    color="#f5f5f5",
-    pad=14,
-)
+ax.set_title(f"{x_metric} vs {y_metric}", fontsize=14, fontweight="semibold", color="#f5f5f5", pad=14)
 
 st.pyplot(fig, use_container_width=True)
 
-# -------------------------------------------------
-# Export
-# -------------------------------------------------
 buf = BytesIO()
 fig.savefig(buf, format="png", dpi=220, facecolor=fig.get_facecolor())
 buf.seek(0)
@@ -1270,10 +1166,8 @@ st.download_button(
 
 plt.close(fig)
 
-
-
 # =========================
-# SQUAD FILTERS (moved ABOVE Pro Layout section)
+# SQUAD FILTERS
 # =========================
 st.markdown("<div class='section-title' style='margin-top:10px;'>SQUAD</div>", unsafe_allow_html=True)
 
@@ -1313,7 +1207,7 @@ df_all = add_pool_percentiles(df_all, pool_mask=pool_mask, min_group=5)
 df_all["RoleScores"] = df_all.apply(compute_role_scores_for_row, axis=1)
 
 # =========================
-# TEAM FILTER FOR DISPLAY LIST  (FOLLOW SELECTED TEAM_NAME)
+# TEAM FILTER FOR DISPLAY LIST (follows TEAM_NAME)
 # =========================
 _team_name_norm = str(TEAM_NAME).strip()
 df_team_players = df_all[df_all["Team"].astype(str).str.strip().eq(_team_name_norm)].copy()
@@ -1321,11 +1215,11 @@ if df_team_players.empty:
     st.info(f"No players found for Team = '{_team_name_norm}'.")
     st.stop()
 
-df_disp = df_team_players[(df_team_players[mins_col] >= pool_min) & (df_team_players[mins_col] <= pool_max)].copy()
+df_disp = df_team_players[df_team_players[mins_col].between(pool_min, pool_max)].copy()
 
 if "Age" in df_disp.columns:
     df_disp["Age_num"] = pd.to_numeric(df_disp["Age"], errors="coerce")
-    df_disp = df_disp[(df_disp["Age_num"].fillna(0) >= age_min) & (df_disp["Age_num"].fillna(0) <= age_max)]
+    df_disp = df_disp[df_disp["Age_num"].fillna(0).between(age_min, age_max)]
 
 if visa_only and "Birth country" in df_disp.columns:
     bc_norm = _norm_series(df_disp["Birth country"])
@@ -1334,21 +1228,15 @@ if visa_only and "Birth country" in df_disp.columns:
 df_disp = df_disp.sort_values(mins_col, ascending=False).reset_index(drop=True)
 
 # =========================
-# PLAYERS subtitle (Pro Layout section header)
+# PLAYERS
 # =========================
 st.markdown("<div class='section-title' style='margin-top:10px;'>PLAYERS</div>", unsafe_allow_html=True)
 
-# =========================
-# PHOTO MAPS (hidden overrides + fotmob)
-# =========================
 local_overrides = load_local_photo_overrides(PLAYER_PHOTO_OVERRIDES_JSON)
 fm_map = fotmob_photo_map(FOTMOB_TEAM_URL)
 
-badge_uri = crest_uri  # same badge everywhere
+badge_uri = crest_uri
 
-# =========================
-# RENDER SQUAD CARDS
-# =========================
 if df_disp.empty:
     st.info("No players match your filters.")
     st.stop()
@@ -1423,7 +1311,6 @@ for i, row in df_disp.iterrows():
                 for lab, met in available_pairs:
                     pct = _metric_pct(row, met)
                     val = _metric_val(row, met)
-
                     if pd.isna(pct) or pd.isna(val):
                         continue
 
@@ -1449,24 +1336,11 @@ for i, row in df_disp.iterrows():
                     )
 
             if sections_html:
-                st.markdown(
-                    "<div class='metrics-grid'>" + "".join(sections_html) + "</div>",
-                    unsafe_allow_html=True
-                )
+                st.markdown("<div class='metrics-grid'>" + "".join(sections_html) + "</div>", unsafe_allow_html=True)
             else:
                 st.info("No available metrics found for this player (missing columns or no computed percentiles).")
-
-
 # =========================
 # SCATTERPLOT (Club View) — PLAYER PERFORMANCE
-# - Visible controls ONLY:
-#   - Position group (default CB)
-#   - Minutes filter (default 1000–5000)
-#   - X metric / Y metric (footballing RAW metrics only)
-#   - Label all players toggle (TEAM players labeled by default)
-#   - Export PNG button
-# - Auto smart presets by position group
-# - Median reference lines on both axes
 # =========================
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
@@ -1475,7 +1349,6 @@ from io import BytesIO
 st.markdown("---")
 st.markdown("<div class='section-title'>PLAYER PERFORMANCE</div>", unsafe_allow_html=True)
 
-# ---- helpers ----
 def _as_num(s):
     return pd.to_numeric(s, errors="coerce")
 
@@ -1526,9 +1399,7 @@ def _pick_first_existing(options, candidates):
             return c
     return options[0] if options else None
 
-# ---- footballing metrics only (RAW values) ----
 FEATURES_SCATTER = sorted([m for m in metrics_used_by_roles() if m in df_all.columns])
-
 metric_cols = []
 for c in FEATURES_SCATTER:
     if _as_num(df_all[c]).notna().any():
@@ -1537,9 +1408,8 @@ for c in FEATURES_SCATTER:
 if not metric_cols:
     st.info("No footballing metric columns available for scatter.")
 else:
-    # ---- smart presets (your spec) ----
     PRESET_BY_POS = {
-        "CB": ("Progressive passes per 90", "Aerial duels won, %"),          # keep what you have now
+        "CB": ("Progressive passes per 90", "Aerial duels won, %"),
         "GK": ("Exits per 90", "Prevented goals per 90"),
         "FB": ("Dribbles per 90", "Progressive passes per 90"),
         "CM": ("Dribbles per 90", "Progressive passes per 90"),
@@ -1558,15 +1428,12 @@ else:
         "OTHER": "Player Performance",
     }
 
-    # ---- controls (ONLY intended ones) ----
     pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
-    default_pos = "CB"  # ✅ default center backs
+    default_pos = "CB"
 
-    # minutes default 1000–5000
     max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
     default_mins = (1000, min(5000, max_m))
 
-    # session defaults (so presets apply when switching position, but don't fight user)
     if "sc_last_pos" not in st.session_state:
         st.session_state["sc_last_pos"] = None
     if "sc_x_metric" not in st.session_state:
@@ -1578,24 +1445,10 @@ else:
         c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.2, 1.6])
 
         with c1:
-            pos_pick = st.selectbox(
-                "Position group",
-                pos_options,
-                index=pos_options.index(default_pos),
-                key="club_sc_pos",
-            )
+            pos_pick = st.selectbox("Position group", pos_options, index=pos_options.index(default_pos), key="club_sc_pos")
+            m_min, m_max = st.slider("Minutes filter", 0, max_m, default_mins, step=10, key="club_sc_mins")
 
-            m_min, m_max = st.slider(
-                "Minutes filter",
-                0, max_m,
-                default_mins,
-                step=10,
-                key="club_sc_mins",
-            )
-
-        # apply smart preset when position changes OR when metrics not set yet
         preset_x, preset_y = PRESET_BY_POS.get(pos_pick, (None, None))
-
         needs_preset = (
             st.session_state["sc_last_pos"] != pos_pick
             or st.session_state["sc_x_metric"] not in metric_cols
@@ -1603,7 +1456,6 @@ else:
         )
 
         if needs_preset:
-            # fallback safely if a preset metric is missing
             if preset_x not in metric_cols:
                 preset_x = _pick_first_existing(metric_cols, ["Progressive passes per 90", "xG per 90", "Passes per 90"])
             if preset_y not in metric_cols:
@@ -1613,30 +1465,18 @@ else:
             st.session_state["sc_last_pos"] = pos_pick
 
         with c2:
-            x_metric = st.selectbox(
-                "X metric",
-                metric_cols,
-                index=metric_cols.index(st.session_state["sc_x_metric"]),
-                key="club_sc_x",
-            )
+            x_metric = st.selectbox("X metric", metric_cols, index=metric_cols.index(st.session_state["sc_x_metric"]), key="club_sc_x")
             st.session_state["sc_x_metric"] = x_metric
 
         with c3:
-            y_metric = st.selectbox(
-                "Y metric",
-                metric_cols,
-                index=metric_cols.index(st.session_state["sc_y_metric"]),
-                key="club_sc_y",
-            )
+            y_metric = st.selectbox("Y metric", metric_cols, index=metric_cols.index(st.session_state["sc_y_metric"]), key="club_sc_y")
             st.session_state["sc_y_metric"] = y_metric
 
         with c4:
             label_all_players = st.checkbox("Label all players", value=False, key="club_sc_label_all")
 
-    # ---- pool ----
     pool = df_all.copy()
     pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
-
     pool = pool[pool["PosGroup"].astype(str) == pos_pick]
     pool = pool[pool[mins_col].between(m_min, m_max)]
 
@@ -1652,7 +1492,6 @@ else:
         others = pool[~team_mask].copy()
         team_players = pool[team_mask].copy()
 
-        # ---- plot ----
         fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
         fig.patch.set_facecolor("#0e0e0f")
         ax.set_facecolor("#0f151f")
@@ -1665,22 +1504,13 @@ else:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
 
-        ax.scatter(
-            others[x_metric], others[y_metric],
-            s=60, alpha=0.55, c="#cbd5e1",
-            edgecolors="none", zorder=2
-        )
-        ax.scatter(
-            team_players[x_metric], team_players[y_metric],
-            s=110, alpha=0.98, c="#C81E1E",
-            edgecolors="white", linewidths=1.2, zorder=4
-        )
+        ax.scatter(others[x_metric], others[y_metric], s=60, alpha=0.55, c="#cbd5e1", edgecolors="none", zorder=2)
+        ax.scatter(team_players[x_metric], team_players[y_metric], s=110, alpha=0.98, c="#C81E1E",
+                   edgecolors="white", linewidths=1.2, zorder=4)
 
-        # medians
         ax.axvline(float(np.nanmedian(x_vals)), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
         ax.axhline(float(np.nanmedian(y_vals)), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-        # labels: TEAM players by default; optional label all
         from matplotlib import patheffects as pe
         try:
             from adjustText import adjust_text
@@ -1725,7 +1555,6 @@ else:
             except Exception:
                 pass
 
-        # axes + denser ticks
         ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
         ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
 
@@ -1742,16 +1571,10 @@ else:
             spine.set_color("#6b7280")
             spine.set_linewidth(0.9)
 
-        # subtitle on chart only (position-dependent)
-        ax.set_title(
-            POS_TITLE.get(pos_pick, "Player Performance"),
-            fontsize=14, fontweight="semibold", color="#f5f5f5", pad=10
-        )
+        ax.set_title(POS_TITLE.get(pos_pick, "Player Performance"), fontsize=14, fontweight="semibold", color="#f5f5f5", pad=10)
 
-        # show plot
         st.pyplot(fig, use_container_width=True)
 
-        # ---- export button ----
         png_buf = BytesIO()
         fig.savefig(png_buf, format="png", dpi=220, facecolor=fig.get_facecolor())
         png_buf.seek(0)
@@ -1768,8 +1591,6 @@ else:
 # ============================== FEATURE R — SQUAD PROFILE (Minimal UI) ==============================
 from io import BytesIO
 import uuid
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 from matplotlib import patheffects as pe
@@ -1777,34 +1598,21 @@ from matplotlib import patheffects as pe
 st.markdown("---")
 st.header("SQUAD PROFILE")
 
-# --------------------------------------------------------------------------------------
-# CONFIG
-# --------------------------------------------------------------------------------------
-CONTRACT_COL = "Contract expires"   # <= 2026 -> optional red highlight
+CONTRACT_COL = "Contract expires"
 
-# Optional smart label library
 try:
     from adjustText import adjust_text
     HAVE_ADJUSTTEXT = True
 except ImportError:
     HAVE_ADJUSTTEXT = False
 
-# --------------------------------------------------------------------------------------
-# MINIMAL CONTROLS (ONLY: team select + 2 toggles)
-# --------------------------------------------------------------------------------------
 teams_available = sorted(df_all["Team"].dropna().unique())
-
-# Default team priority:
-# 1) TEAM_NAME constant
-# 2) player_row team if available
-# 3) first in list
-default_team = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else None
+default_team = str(TEAM_NAME).strip()
 selected_player_name = None
 
 player_row_obj = globals().get("player_row", pd.DataFrame())
 if (default_team is None) and isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
     default_team = player_row_obj.iloc[0].get("Team", None)
-
 if isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
     selected_player_name = player_row_obj.iloc[0].get("Player", None)
 
@@ -1814,33 +1622,21 @@ cA, cB, cC = st.columns([2.2, 1.2, 1.2])
 with cA:
     squad_team = st.selectbox("Squad (team)", options=teams_available, index=default_idx, key="sq_team_min")
 with cB:
-    auto_contract_red = st.checkbox("Contract ≤ 2026", value=False, key="sq_contract_toggle")  # NOT default
+    auto_contract_red = st.checkbox("Contract ≤ 2026", value=False, key="sq_contract_toggle")
 with cC:
-    visa_highlight = st.checkbox("Visa players", value=False, key="sq_visa_toggle")            # NOT default
+    visa_highlight = st.checkbox("Visa players", value=False, key="sq_visa_toggle")
 
-# --------------------------------------------------------------------------------------
-# FIXED DEFAULTS (NO UI)
-# --------------------------------------------------------------------------------------
-mcol = mins_col if "mins_col" in globals() else "Minutes played"
-
-# fixed filters (as requested)
+mcol = mins_col
 min_minutes_s, max_minutes_s = 0, 3500
 min_age_s, max_age_s = 16, 40
 
-# fixed minutes bands
-band_lines = sorted(
-    [("Important Player", 1000),
-     ("Crucial Player", 1750)],
-    key=lambda x: x[1],
-)
+band_lines = sorted([("Important Player", 1000), ("Crucial Player", 1750)], key=lambda x: x[1])
 
-# fixed visual defaults
 show_labels = True
 label_size = 15
 point_size = 300
 point_alpha = 0.92
 
-# theme/canvas defaults
 PAGE_BG = "#0a0f1c"
 PLOT_BG = "#0a0f1c"
 GRID_MAJ = "#3a4050"
@@ -1849,9 +1645,6 @@ w_px, h_px = 1600, 900
 top_gap_px = 80
 render_exact = True
 
-# --------------------------------------------------------------------------------------
-# FILTER SQUAD
-# --------------------------------------------------------------------------------------
 squad = df_all[df_all["Team"].astype(str).str.strip().eq(str(squad_team).strip())].copy()
 if squad.empty:
     st.info("No players found for this squad.")
@@ -1860,49 +1653,31 @@ if squad.empty:
 squad[mcol] = pd.to_numeric(squad[mcol], errors="coerce")
 squad["Age"] = pd.to_numeric(squad["Age"], errors="coerce")
 
-squad = squad[
-    squad[mcol].between(min_minutes_s, max_minutes_s)
-    & squad["Age"].between(min_age_s, max_age_s)
-]
-
+squad = squad[squad[mcol].between(min_minutes_s, max_minutes_s) & squad["Age"].between(min_age_s, max_age_s)]
 if squad.empty:
     st.info("No players after applying filters.")
     st.stop()
 
-# --------------------------------------------------------------------------------------
-# HIGHLIGHTS: Contract ≤ 2026 (optional) + Visa players (optional) + Selected (if available)
-# --------------------------------------------------------------------------------------
-# Contract highlight (optional)
 if auto_contract_red and CONTRACT_COL in squad.columns:
-    contract_year = (
-        squad[CONTRACT_COL]
-        .astype(str)
-        .str.extract(r"(\d{4})")[0]
-        .astype(float)
-    )
+    contract_year = squad[CONTRACT_COL].astype(str).str.extract(r"(\d{4})")[0].astype(float)
     squad["ContractYear"] = contract_year
     squad["AutoRed"] = squad["ContractYear"].le(2026)
 else:
     squad["ContractYear"] = np.nan
     squad["AutoRed"] = False
 
-# Visa highlight (optional): Birth country != "China PR"
 if visa_highlight and ("Birth country" in squad.columns):
     bc_norm = _norm_series(squad["Birth country"])
     squad["VisaRed"] = bc_norm.ne("china pr")
 else:
     squad["VisaRed"] = False
 
-# Selected player (optional if your app has player_row defined)
 squad["Selected"] = False
 if selected_player_name:
     squad["Selected"] = squad["Player"] == selected_player_name
 
 squad["IsRed"] = squad["AutoRed"] | squad["VisaRed"] | squad["Selected"]
 
-# --------------------------------------------------------------------------------------
-# SCATTER BASE
-# --------------------------------------------------------------------------------------
 fig, ax = plt.subplots(figsize=(w_px / 100, h_px / 100), dpi=100)
 fig.patch.set_facecolor(PAGE_BG)
 ax.set_facecolor(PLOT_BG)
@@ -1927,9 +1702,6 @@ for s in ax.spines.values():
     s.set_color("#e5e7eb")
     s.set_linewidth(1.1)
 
-# --------------------------------------------------------------------------------------
-# AGE BANDS (fixed conceptual bands: 16–20, 21–24, 25–28, 29–32, 33–45)
-# --------------------------------------------------------------------------------------
 line_col = "#FFFFFF"
 AGE_BAND_LABELS = ["YOUTH", "ASCENT", "PRIME", "EXPERIENCED", "OLD"]
 AGE_BAND_EDGES = [16, 21, 25, 29, 33, 45]
@@ -1941,26 +1713,15 @@ for al in [21, 25, 29, 33]:
 for i, label in enumerate(AGE_BAND_LABELS):
     band_start = AGE_BAND_EDGES[i]
     band_end = AGE_BAND_EDGES[i + 1]
-
     visible_start = max(band_start, min_age_s)
     visible_end = min(band_end, max_age_s)
-
     if visible_start >= visible_end or max_age_s == min_age_s:
         continue
-
     center = (visible_start + visible_end) / 2.0
     x_frac = (center - min_age_s) / float(max_age_s - min_age_s)
+    ax.text(x_frac, 1.01, label, transform=ax.transAxes, fontsize=20, fontweight="bold",
+            color=txt_col, ha="center", va="bottom")
 
-    ax.text(
-        x_frac, 1.01, label,
-        transform=ax.transAxes,
-        fontsize=20, fontweight="bold",
-        color=txt_col, ha="center", va="bottom",
-    )
-
-# --------------------------------------------------------------------------------------
-# MINUTES BANDS
-# --------------------------------------------------------------------------------------
 for name, y_val in band_lines:
     if min_minutes_s <= y_val <= max_minutes_s:
         ax.axhline(y_val, color=line_col, linestyle=(0, (4, 4)), lw=1.5)
@@ -1971,23 +1732,14 @@ for name, y_val in band_lines:
             fontsize=14,
             fontweight="bold",
             color="#020617",
-            bbox=dict(
-                boxstyle="round,pad=0.35",
-                facecolor="#e5e7eb",
-                edgecolor="none",
-                alpha=0.95,
-            ),
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="#e5e7eb", edgecolor="none", alpha=0.95),
             va="bottom",
         )
 
-# --------------------------------------------------------------------------------------
-# POINTS
-# --------------------------------------------------------------------------------------
 effective_point_size = point_size * 1.1
 for is_red, grp in squad.groupby("IsRed"):
     ax.scatter(
-        grp["Age"],
-        grp[mcol],
+        grp["Age"], grp[mcol],
         s=effective_point_size,
         c="#ef4444" if is_red else "#e5e7eb",
         alpha=point_alpha,
@@ -1996,12 +1748,8 @@ for is_red, grp in squad.groupby("IsRed"):
         zorder=3 if is_red else 2,
     )
 
-# --------------------------------------------------------------------------------------
-# LABELS – ALL PLAYERS
-# --------------------------------------------------------------------------------------
 if show_labels:
     label_df = squad.copy()
-
     axis_height = max_minutes_s - min_minutes_s
     top_margin = axis_height * 0.04
     bottom_margin = axis_height * 0.03
@@ -2010,7 +1758,6 @@ if show_labels:
         texts = []
         xs = label_df["Age"].values
         ys = label_df[mcol].values
-
         for x, y, name, is_red in zip(xs, ys, label_df["Player"], label_df["IsRed"]):
             t = ax.text(
                 x, y, name,
@@ -2025,8 +1772,7 @@ if show_labels:
             texts.append(t)
 
         adjust_text(
-            texts,
-            x=xs, y=ys, ax=ax,
+            texts, x=xs, y=ys, ax=ax,
             autoalign="y",
             only_move={"points": "y", "text": "xy"},
             force_points=0.7,
@@ -2040,7 +1786,6 @@ if show_labels:
             x_lab, y_lab = t.get_position()
             y_lab = max(min_minutes_s + bottom_margin, min(y_lab, max_minutes_s - top_margin))
             t.set_position((x_lab, y_lab))
-
     else:
         base_offset = axis_height * 0.015
         min_y_delta = axis_height * 0.05
@@ -2054,7 +1799,6 @@ if show_labels:
         for _, r in label_df_sorted.iterrows():
             x = float(r["Age"])
             y = float(r[mcol])
-
             x_lab = x
             y_lab = y + base_offset
             y_lab = max(min_minutes_s + bottom_margin, min(y_lab, max_minutes_s - top_margin))
@@ -2107,15 +1851,7 @@ if show_labels:
             )
             t.set_path_effects([pe.withStroke(linewidth=2, foreground="#020617", alpha=0.9)])
 
-# --------------------------------------------------------------------------------------
-# LAYOUT & RENDER
-# --------------------------------------------------------------------------------------
-fig.subplots_adjust(
-    left=0.06,
-    right=0.98,
-    bottom=0.11,
-    top=1.02 - top_gap_px / float(h_px),
-)
+fig.subplots_adjust(left=0.06, right=0.98, bottom=0.11, top=1.02 - top_gap_px / float(h_px))
 
 if render_exact:
     buf = BytesIO()
@@ -2133,8 +1869,6 @@ else:
     st.pyplot(fig)
 
 plt.close(fig)
-# ============================== END FEATURE R ==========================================
-
 
 # ============================== FEATURE — ARCHETYPE MAP (MINIMAL UI, NO SCIPY, df_all) ==============================
 # UI: Position, Team, Age slider, Label-all toggle
@@ -2188,12 +1922,19 @@ with c1:
 POS_KEY = pos_label_to_key[pos_pick_label]
 
 with c2:
-    teams_available = sorted(df_all["Team"].dropna().astype(str).unique().tolist()) if "Team" in df_all.columns else []
-    default_team = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else (teams_available[0] if teams_available else "")
+    teams_available = (
+        sorted(df_all["Team"].dropna().astype(str).str.strip().unique().tolist())
+        if "Team" in df_all.columns else []
+    )
+
+    # Default team = selected TEAM_NAME from the top of the app (flows through)
+    _default_team = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else (teams_available[0] if teams_available else "")
+    _default_team = _default_team if _default_team in teams_available else (teams_available[0] if teams_available else "")
+
     team_pick = st.selectbox(
         "Team",
         options=teams_available,
-        index=(teams_available.index(default_team) if default_team in teams_available else 0),
+        index=(teams_available.index(_default_team) if _default_team in teams_available else 0),
         key="arch_team_pick_min",
     )
 
@@ -2303,9 +2044,11 @@ def build_position_config(pos_key: str):
             if r["poss_score"] >= 50: return "Build-Up"
             return "Limited"
         flags = {"Ball Carrier": ("carry_score", 70, "s")}
-        return dict(x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                    quad=("LOCKDOWN", "COMPLETE", "LIMITED", "BUILD UP/ATTACKING"),
-                    xlab="Possession Score", ylab="Defensive Score")
+        return dict(
+            x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
+            quad=("LOCKDOWN", "COMPLETE", "LIMITED", "BUILD UP/ATTACKING"),
+            xlab="Possession Score", ylab="Defensive Score"
+        )
 
     if pos_key == "CB":
         metric_groups = {
@@ -2338,9 +2081,11 @@ def build_position_config(pos_key: str):
             if r["poss_score"] >= 50: return "Ball Player"
             return "Limited"
         flags = {"Ball Carrier": ("carry_score", 70, "s")}
-        return dict(x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                    quad=("BOX-DEFENDER", "COMPLETE", "LIMITED", "BALL PLAYER"),
-                    xlab="Possession Score", ylab="Defensive Score")
+        return dict(
+            x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
+            quad=("BOX-DEFENDER", "COMPLETE", "LIMITED", "BALL PLAYER"),
+            xlab="Possession Score", ylab="Defensive Score"
+        )
 
     if pos_key == "CM":
         metric_groups = {
@@ -2377,9 +2122,11 @@ def build_position_config(pos_key: str):
             if r["poss_score"] >= 50: return "Playmaker"
             return "Limited"
         flags = {"Ball Carrier": ("carry_score", 70, "s"), "Box Threat": ("boxing_score", 80, "D")}
-        return dict(x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                    quad=("DESTROYER", "ALL ACTION", "LIMITED", "PLAYMAKER"),
-                    xlab="Possession Score", ylab="Defensive Score")
+        return dict(
+            x="poss_score", y="def_score", metric_groups=metric_groups, classify=classify, flags=flags,
+            quad=("DESTROYER", "ALL ACTION", "LIMITED", "PLAYMAKER"),
+            xlab="Possession Score", ylab="Defensive Score"
+        )
 
     if pos_key == "ATT":
         metric_groups = {
@@ -2404,9 +2151,11 @@ def build_position_config(pos_key: str):
             if r["poss_score"] >= 50: return "Facilitator"
             return "Limited"
         flags = {"Ball Carrier": ("carry_score", 70, "s")}
-        return dict(x="Threat_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                    quad=("FACILITATOR", "MULTI-THREAT", "LIMITED", "FINAL ACTION"),
-                    xlab="Threat Score", ylab="Possession Score")
+        return dict(
+            x="Threat_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
+            quad=("FACILITATOR", "MULTI-THREAT", "LIMITED", "FINAL ACTION"),
+            xlab="Threat Score", ylab="Possession Score"
+        )
 
     if pos_key == "CF":
         metric_groups = {
@@ -2431,9 +2180,11 @@ def build_position_config(pos_key: str):
             if r["poss_score"] >= 50: return "Link-Up"
             return "Limited"
         flags = {"Ball Carrier": ("carry_score", 70, "s")}
-        return dict(x="Threat_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                    quad=("LINK-UP", "COMPLETE", "LIMITED", "POACHER"),
-                    xlab="Threat Score", ylab="Possession Score")
+        return dict(
+            x="Threat_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
+            quad=("LINK-UP", "COMPLETE", "LIMITED", "POACHER"),
+            xlab="Threat Score", ylab="Possession Score"
+        )
 
     # GK
     metric_groups = {
@@ -2447,9 +2198,11 @@ def build_position_config(pos_key: str):
         if r["poss_score"] >= 50: return "Ball Player"
         return "Limited"
     flags = {"Sweeper GK": ("sweeper_score", 70, "s")}
-    return dict(x="gk_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
-                quad=("BALL PLAYER", "COMPLETE", "LIMITED", "SHOT STOPPER"),
-                xlab="Goalkeeping Score", ylab="Possession Score")
+    return dict(
+        x="gk_score", y="poss_score", metric_groups=metric_groups, classify=classify, flags=flags,
+        quad=("BALL PLAYER", "COMPLETE", "LIMITED", "SHOT STOPPER"),
+        xlab="Goalkeeping Score", ylab="Possession Score"
+    )
 
 cfg = build_position_config(POS_KEY)
 
@@ -2611,8 +2364,15 @@ if not label_df.empty:
 # Legend (Archetypes present)
 arch_set = sorted(pool_sc["Archetype"].dropna().unique().tolist())
 handles = [
-    Line2D([0], [0], marker="s", linestyle="None", color="none",
-           markerfacecolor=ARCH_COLORS.get(a, "#cbd5e1"), markersize=14, label=a)
+    Line2D(
+        [0], [0],
+        marker="s",
+        linestyle="None",
+        color="none",
+        markerfacecolor=ARCH_COLORS.get(a, "#cbd5e1"),
+        markersize=14,
+        label=a
+    )
     for a in arch_set
 ]
 leg = ax.legend(
@@ -2651,6 +2411,9 @@ st.download_button(
 
 plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
+
+
+
 
 
 
