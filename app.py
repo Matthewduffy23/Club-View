@@ -905,6 +905,26 @@ header, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
 
+/* Keep role labels on ONE line */
+.m-label{
+  white-space: nowrap !important;
+}
+
+/* Give content more usable width on the right (so it isn't covered) */
+@media (max-width: 600px){
+  .block-container{
+    padding-right: 110px !important;
+  }
+
+  /* also protect the metrics sections + expanders */
+  .m-sec,
+  [data-testid="stExpander"],
+  [data-testid="stExpanderHeader"]{
+    margin-right: 110px !important;
+  }
+}
+
+
 # IMPORTANT:
 # You had: st.markdown("""<style>  // ...""")
 # That "//" is not valid in Python. Use "#" comments outside strings, like above.
