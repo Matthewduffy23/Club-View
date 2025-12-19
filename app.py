@@ -1818,6 +1818,149 @@ else:
 plt.close(fig)
 # ============================== END FEATURE R ==========================================
 
+# =========================
+# FEATURE — TEAM PERFORMANCE
+# =========================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+from matplotlib import patheffects as pe
+from io import BytesIO
+
+st.markdown("---")
+st.markdown("<div class='section-title'>TEAM PERFORMANCE</div>", unsafe_allow_html=True)
+
+# -------------------------------------------------
+# LOAD DATA
+# -------------------------------------------------
+TEAM_CSV = "ChinaTeams.csv"
+
+if not os.path.exists(TEAM_CSV):
+    st.error("ChinaTeams.csv not found in project root.")
+    st.stop()
+
+df_team = pd.read_csv(TEAM_CSV)
+
+required_cols = {"Team", "xG", "xGA"}
+missing = required_cols - set(df_team.columns)
+if missing:
+    st.error(f"Missing required columns in ChinaTeams.csv: {missing}")
+    st.stop()
+
+# numeric coercion
+for c in ["xG", "xGA"]:
+    df_team[c] = pd.to_numeric(df_team[c], errors="coerce")
+
+df_team = df_team.dropna(subset=["Team", "xG", "xGA"])
+
+# -------------------------------------------------
+# DEFAULT METRICS (LOCKED LIKE PLAYER VIEW)
+# -------------------------------------------------
+x_metric = "xG"
+y_metric = "xGA"
+
+# -------------------------------------------------
+# PLOT
+# -------------------------------------------------
+fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
+fig.patch.set_facecolor("#0e0e0f")
+ax.set_facecolor("#0f151f")
+
+x_vals = df_team[x_metric].to_numpy(float)
+y_vals = df_team[y_metric].to_numpy(float)
+
+# padded limits
+def padded_limits(arr, pad_frac=0.06):
+    a_min, a_max = float(np.min(arr)), float(np.max(arr))
+    span = a_max - a_min
+    return a_min - span * pad_frac, a_max + span * pad_frac
+
+ax.set_xlim(*padded_limits(x_vals))
+ax.set_ylim(*padded_limits(y_vals))
+
+# points
+ax.scatter(
+    x_vals,
+    y_vals,
+    s=140,
+    c="#cbd5e1",
+    edgecolors="none",
+    alpha=0.9,
+    zorder=2,
+)
+
+# -------------------------------------------------
+# MEDIAN REFERENCE LINES
+# -------------------------------------------------
+ax.axvline(np.median(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+ax.axhline(np.median(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+
+# -------------------------------------------------
+# LABELS (ALL TEAMS)
+# -------------------------------------------------
+texts = []
+for _, r in df_team.iterrows():
+    t = ax.annotate(
+        r["Team"],
+        (r[x_metric], r[y_metric]),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=11,
+        fontweight="semibold",
+        color="#f5f5f5",
+        ha="left",
+        va="bottom",
+        zorder=4,
+    )
+    t.set_path_effects([
+        pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)
+    ])
+    texts.append(t)
+
+# -------------------------------------------------
+# AXES / GRID
+# -------------------------------------------------
+ax.set_xlabel("xG", fontsize=14, fontweight="semibold", color="#f5f5f5")
+ax.set_ylabel("xGA (lower = better)", fontsize=14, fontweight="semibold", color="#f5f5f5")
+
+ax.grid(True, linewidth=0.7, alpha=0.25)
+ax.tick_params(colors="#e5e7eb")
+
+for spine in ax.spines.values():
+    spine.set_color("#6b7280")
+    spine.set_linewidth(0.9)
+
+# -------------------------------------------------
+# TITLE (ON CHART ONLY)
+# -------------------------------------------------
+ax.set_title(
+    "Attack vs Defence (xG vs xGA)",
+    fontsize=14,
+    fontweight="semibold",
+    color="#f5f5f5",
+    pad=10,
+)
+
+st.pyplot(fig, use_container_width=True)
+
+# -------------------------------------------------
+# EXPORT
+# -------------------------------------------------
+buf = BytesIO()
+fig.savefig(buf, format="png", dpi=220, facecolor=fig.get_facecolor())
+buf.seek(0)
+
+st.download_button(
+    "Export chart (PNG)",
+    data=buf,
+    file_name="team_performance_xg_xga.png",
+    mime="image/png",
+)
+
+plt.close(fig)
+
+
 
 
 
