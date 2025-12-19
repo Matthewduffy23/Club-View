@@ -38,7 +38,7 @@ PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
 # Header manual inputs
 OVERALL = 99
 ATT_HDR = 89
-POS_HDR = 88
+MID_HDR = 88
 DEF_HDR = 90
 LEAGUE_TEXT = "Super League"
 AVG_AGE = 29.4
