@@ -57,7 +57,7 @@ TEAM_PROFILES = {
     "Beijing Guoan": {
         "TEAM_NAME": "Beijing Guoan",
         "CREST_PATH": "images/beijing.png",
-        "PERFORMANCE_IMAGE_PATH": "images/beijinggraph.png",
+        "PERFORMANCE_IMAGE_PATH": "images/beijinggraphh.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
         "OVERALL": 76,
