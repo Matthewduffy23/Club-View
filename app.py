@@ -2059,7 +2059,7 @@ from matplotlib.ticker import MultipleLocator
 from matplotlib import patheffects as pe
 
 st.markdown("---")
-st.header("🧭 Feature — Archetype Map")
+st.header("PLAYER PROFILES")
 
 # Optional smart label library
 try:
