@@ -968,6 +968,7 @@ else:
 # TEAM NOTES (MANUAL – TWO TEAMS ONLY)
 # Edit text here ONLY
 # =========================
+import html  # <-- add once (safe even if already imported)
 
 TEAM_NOTES = {
     "Chengdu Rongcheng": {
@@ -1017,15 +1018,13 @@ def _chip_row(items, bg):
         f"font-size:14px;"
         f"margin:0 8px 10px 0;"
         f"display:inline-block;'>"
-        f"{st.utils.escape_html(str(t))}</span>"
+        f"{html.escape(str(t))}</span>"
         for t in items
     )
 
-# Resolve notes for current team
 team_key = _norm_one(TEAM_NAME)
 notes = TEAM_NOTES.get(team_key)
 
-# Render ONLY if team is defined
 if notes:
     team_notes_html = f"""
     <div style="margin-top:14px;margin-bottom:26px;">
@@ -1041,6 +1040,7 @@ if notes:
     </div>
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
+
 
 
 # =========================
