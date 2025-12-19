@@ -1151,12 +1151,12 @@ for i, row in df_disp.iterrows():
 # Plot:
 #   - TEAM_NAME players highlighted red
 #   - Median reference lines on BOTH axes
+#   - TITLE depends on position group
 # =========================
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
 st.markdown("---")
-st.markdown("<div class='section-title'>PLAYER METRICS</div>", unsafe_allow_html=True)
 
 # ---- helpers ----
 def _as_num(s):
@@ -1209,11 +1209,20 @@ def _padded_limits(arr, pad_frac=0.06, headroom=0.03):
     pad = span * pad_frac
     return a_min - pad, a_max + pad + span * headroom
 
+# ---- position → title ----
+POS_TITLE = {
+    "GK": "Goalkeeper Performance",
+    "CB": "Center Back Performance",
+    "FB": "Full Back Performance",
+    "CM": "Central Midfield Performance",
+    "ATT": "Attacker Performance",
+    "CF": "Striker Performance",
+    "OTHER": "Player Performance",
+}
+
 # ---- footballing metrics only (RAW values) ----
-# Use role-metric universe so we don't expose non-football/helper columns.
 FEATURES_SCATTER = sorted([m for m in metrics_used_by_roles() if m in df_all.columns])
 
-# Keep only columns that can actually be numeric
 metric_cols = []
 for c in FEATURES_SCATTER:
     s = _as_num(df_all[c])
@@ -1221,13 +1230,11 @@ for c in FEATURES_SCATTER:
         metric_cols.append(c)
 
 if not metric_cols:
-    st.info("No footballing metric columns found for scatter (check CSV columns).")
+    st.info("No footballing metric columns found for scatter.")
 else:
-    # ---- controls (ONLY requested ones) ----
     pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
     default_pos = "CB" if "CB" in pos_options else pos_options[0]
 
-    # sensible defaults (fallbacks if missing)
     x_default = _first_existing(metric_cols, ["Progressive passes per 90", "xG per 90", "Passes per 90"]) or metric_cols[0]
     y_default = _first_existing(metric_cols, ["Aerial duels won, %", "Non-penalty goals per 90", "xA per 90"]) or (
         metric_cols[1] if len(metric_cols) > 1 else metric_cols[0]
@@ -1248,7 +1255,7 @@ else:
             m_min, m_max = st.slider(
                 "Minutes filter",
                 0, max_m,
-                (1000, min(5000, max_m)),  # DEFAULT > 1,000
+                (1000, min(5000, max_m)),  # ✅ DEFAULT 1000–5000
                 step=10,
                 key="club_sc_mins",
             )
@@ -1290,7 +1297,12 @@ else:
         others = pool[~team_mask].copy()
         team_players = pool[team_mask].copy()
 
-        # ---- plot ----
+        # ---- title (POSITION-DEPENDENT) ----
+        st.markdown(
+            f"<div class='section-title'>{POS_TITLE.get(pos_pick, 'Player Performance')}</div>",
+            unsafe_allow_html=True
+        )
+
         fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
         fig.patch.set_facecolor("#0e0e0f")
         ax.set_facecolor("#0f151f")
@@ -1303,7 +1315,6 @@ else:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
 
-        # points (keep your existing style)
         ax.scatter(
             others[x_metric], others[y_metric],
             s=60, alpha=0.55,
@@ -1319,13 +1330,11 @@ else:
             zorder=4
         )
 
-        # median reference lines (both axes)
-        med_x = float(np.nanmedian(x_vals))
-        med_y = float(np.nanmedian(y_vals))
-        ax.axvline(med_x, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
-        ax.axhline(med_y, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+        # ---- medians ----
+        ax.axvline(np.nanmedian(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+        ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-        # labels: TEAM players by default; optional label all
+        # ---- labels ----
         from matplotlib import patheffects as pe
         try:
             from adjustText import adjust_text
@@ -1354,10 +1363,7 @@ else:
                 t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
                 texts.append(t)
 
-        # TEAM labels always on
         _annotate_df(team_players, color="#ffffff", fontsize=10)
-
-        # toggle: label everyone
         if label_all_players:
             _annotate_df(others, color="#e5e7eb", fontsize=9)
 
@@ -1373,7 +1379,6 @@ else:
             except Exception:
                 pass
 
-        # axes + denser ticks (auto)
         ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
         ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
 
@@ -1390,8 +1395,8 @@ else:
             spine.set_color("#6b7280")
             spine.set_linewidth(0.9)
 
-        ax.set_title(f"{pos_pick} — {TEAM_NAME} highlighted", color="#f5f5f5", fontsize=14, pad=12, fontweight="semibold")
         st.pyplot(fig, use_container_width=True)
+
 
 
 
