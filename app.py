@@ -926,10 +926,30 @@ st.markdown("""
   }
 }
 
+st.markdown("""
+<style>
+
+/* Keep role labels on ONE line */
+.m-label{
+  white-space: nowrap;
+}
+
+/* Give content more usable width on the right */
+@media (max-width: 600px){
+  .block-container{
+    padding-right: 110px;
+  }
+
+  .m-sec,
+  [data-testid="stExpander"],
+  [data-testid="stExpanderHeader"]{
+    margin-right: 110px;
+  }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-# (No // comments in Python. Use # like this.)
 
 
 
