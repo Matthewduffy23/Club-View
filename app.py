@@ -66,7 +66,7 @@ TEAM_PROFILES = {
         "DEF_HDR": 87,
         "AVG_AGE": 28.5,
         "LEAGUE_POSITION": 4,
-        "FOTMOB_TEAM_URL": "",  # optional
+        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/4177/squad/beijing-guoan",  
     },
 }
 
