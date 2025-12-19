@@ -1143,15 +1143,6 @@ for i, row in df_disp.iterrows():
 
 # =========================
 # SCATTERPLOT (Club View) — Player Metrics
-# Visible controls ONLY:
-#   - Position group
-#   - Minutes range (default 1000–5000)
-#   - X metric / Y metric (footballing metrics only, RAW values)
-#   - Toggle: Label ALL players (team players labeled by default)
-# Plot:
-#   - TEAM_NAME players highlighted red
-#   - Median reference lines on BOTH axes
-#   - TITLE depends on position group
 # =========================
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
@@ -1209,7 +1200,7 @@ def _padded_limits(arr, pad_frac=0.06, headroom=0.03):
     pad = span * pad_frac
     return a_min - pad, a_max + pad + span * headroom
 
-# ---- position → title ----
+# ---- position → subtitle (ON GRAPH ONLY) ----
 POS_TITLE = {
     "GK": "Goalkeeper Performance",
     "CB": "Center Back Performance",
@@ -1225,18 +1216,18 @@ FEATURES_SCATTER = sorted([m for m in metrics_used_by_roles() if m in df_all.col
 
 metric_cols = []
 for c in FEATURES_SCATTER:
-    s = _as_num(df_all[c])
-    if s.notna().any():
+    if _as_num(df_all[c]).notna().any():
         metric_cols.append(c)
 
 if not metric_cols:
-    st.info("No footballing metric columns found for scatter.")
+    st.info("No footballing metric columns available for scatter.")
 else:
+    # ---- controls (ONLY intended ones) ----
     pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
-    default_pos = "CB" if "CB" in pos_options else pos_options[0]
+    default_pos = "CB"  # ✅ DEFAULT CENTER BACKS
 
-    x_default = _first_existing(metric_cols, ["Progressive passes per 90", "xG per 90", "Passes per 90"]) or metric_cols[0]
-    y_default = _first_existing(metric_cols, ["Aerial duels won, %", "Non-penalty goals per 90", "xA per 90"]) or (
+    x_default = _first_existing(metric_cols, ["Progressive passes per 90", "xG per 90"]) or metric_cols[0]
+    y_default = _first_existing(metric_cols, ["Aerial duels won, %", "Non-penalty goals per 90"]) or (
         metric_cols[1] if len(metric_cols) > 1 else metric_cols[0]
     )
 
@@ -1272,18 +1263,22 @@ else:
             y_metric = st.selectbox(
                 "Y metric",
                 metric_cols,
-                index=(metric_cols.index(y_default) if y_default in metric_cols else min(1, len(metric_cols) - 1)),
+                index=(metric_cols.index(y_default) if y_default in metric_cols else 1),
                 key="club_sc_y",
             )
 
         with c4:
-            label_all_players = st.checkbox("Label all players", value=False, key="club_sc_label_all")
+            label_all_players = st.checkbox(
+                "Label all players",
+                value=False,
+                key="club_sc_label_all",
+            )
 
     # ---- pool ----
     pool = df_all.copy()
     pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
 
-    pool = pool[pool["PosGroup"].astype(str) == pos_pick]
+    pool = pool[pool["PosGroup"] == pos_pick]
     pool = pool[pool[mins_col].between(m_min, m_max)]
 
     pool[x_metric] = _as_num(pool[x_metric])
@@ -1291,18 +1286,13 @@ else:
     pool = pool.dropna(subset=[x_metric, y_metric, "Player", "Team"])
 
     if pool.empty:
-        st.info("No players in the pool after filters.")
+        st.info("No players match the scatter filters.")
     else:
         team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
-        others = pool[~team_mask].copy()
-        team_players = pool[team_mask].copy()
+        others = pool[~team_mask]
+        team_players = pool[team_mask]
 
-        # ---- title (POSITION-DEPENDENT) ----
-        st.markdown(
-            f"<div class='section-title'>{POS_TITLE.get(pos_pick, 'Player Performance')}</div>",
-            unsafe_allow_html=True
-        )
-
+        # ---- plot ----
         fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
         fig.patch.set_facecolor("#0e0e0f")
         ax.set_facecolor("#0f151f")
@@ -1315,87 +1305,67 @@ else:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
 
+        # points
         ax.scatter(
             others[x_metric], others[y_metric],
-            s=60, alpha=0.55,
-            edgecolors="none",
-            c="#cbd5e1",
-            zorder=2
+            s=60, alpha=0.55, c="#cbd5e1", edgecolors="none", zorder=2
         )
         ax.scatter(
             team_players[x_metric], team_players[y_metric],
-            s=110, alpha=0.98,
-            edgecolors="white", linewidths=1.2,
-            c="#C81E1E",
-            zorder=4
+            s=110, alpha=0.98, c="#C81E1E",
+            edgecolors="white", linewidths=1.2, zorder=4
         )
 
-        # ---- medians ----
+        # medians
         ax.axvline(np.nanmedian(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
         ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-        # ---- labels ----
+        # labels
         from matplotlib import patheffects as pe
-        try:
-            from adjustText import adjust_text
-            _HAS_ADJUST = True
-        except Exception:
-            _HAS_ADJUST = False
-
         texts = []
 
-        def _annotate_df(df_lbl, color, fontsize):
-            for _, r in df_lbl.iterrows():
-                nm = str(r.get("Player", "")).strip()
-                if not nm:
-                    continue
-                xv = r.get(x_metric, np.nan)
-                yv = r.get(y_metric, np.nan)
-                if pd.isna(xv) or pd.isna(yv):
-                    continue
-                t = ax.annotate(
-                    nm, (float(xv), float(yv)),
-                    textcoords="offset points", xytext=(8, 8),
-                    ha="left", va="bottom",
-                    fontsize=fontsize, fontweight="semibold",
-                    color=color, zorder=6, clip_on=True
+        def _label(df, color, fs):
+            for _, r in df.iterrows():
+                ax.text(
+                    r[x_metric], r[y_metric], r["Player"],
+                    fontsize=fs, fontweight="semibold",
+                    color=color, ha="left", va="bottom",
+                    zorder=6,
+                    path_effects=[pe.withStroke(linewidth=2.2, foreground="#0b0d12")]
                 )
-                t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
-                texts.append(t)
 
-        _annotate_df(team_players, color="#ffffff", fontsize=10)
+        _label(team_players, "#ffffff", 10)
         if label_all_players:
-            _annotate_df(others, color="#e5e7eb", fontsize=9)
+            _label(others, "#e5e7eb", 9)
 
-        if _HAS_ADJUST and label_all_players and texts:
-            try:
-                adjust_text(
-                    texts, ax=ax,
-                    only_move={"points": "y", "text": "xy"},
-                    autoalign=True, precision=0.001, lim=120,
-                    expand_text=(1.03, 1.06), expand_points=(1.03, 1.06),
-                    force_text=(0.06, 0.10), force_points=(0.06, 0.10)
-                )
-            except Exception:
-                pass
-
+        # axes
         ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
         ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
 
-        step_x = _nice_step(*xlim, target_ticks=12)
-        step_y = _nice_step(*ylim, target_ticks=12)
-        ax.xaxis.set_major_locator(MultipleLocator(base=step_x))
-        ax.yaxis.set_major_locator(MultipleLocator(base=step_y))
+        step_x = _nice_step(*xlim)
+        step_y = _nice_step(*ylim)
+        ax.xaxis.set_major_locator(MultipleLocator(step_x))
+        ax.yaxis.set_major_locator(MultipleLocator(step_y))
         ax.xaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_x)}f"))
         ax.yaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_y)}f"))
 
         ax.grid(True, linewidth=0.7, alpha=0.25)
         ax.tick_params(colors="#e5e7eb")
-        for spine in ax.spines.values():
-            spine.set_color("#6b7280")
-            spine.set_linewidth(0.9)
+        for s in ax.spines.values():
+            s.set_color("#6b7280")
+            s.set_linewidth(0.9)
+
+        # ---- POSITION SUBTITLE (ONLY TITLE) ----
+        ax.set_title(
+            POS_TITLE.get(pos_pick, "Player Performance"),
+            fontsize=14,
+            fontweight="semibold",
+            color="#f5f5f5",
+            pad=10
+        )
 
         st.pyplot(fig, use_container_width=True)
+
 
 
 
