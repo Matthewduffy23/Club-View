@@ -1490,6 +1490,269 @@ st.download_button(
 
 plt.close(fig)
 
+# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, RAW VALUES (scaled), LOWER-BETTER rings run “backwards” -----------------
+import numpy as np
+import pandas as pd
+import streamlit as st
+import matplotlib.pyplot as plt
+from matplotlib.patches import Wedge, Circle
+
+st.markdown("---")
+st.header("📊 Team Comparison Radar")
+
+# ---- CONFIG ----
+TEAM_CSV_PATH = "ChinaTeams.csv"
+SUBTITLE_TEXT = "China Super League 2025"
+
+TEAM_RADAR_METRICS = [
+    "Team",
+    "xG",
+    "Goals",
+    "xGA",
+    "Goals Conceded",
+    "Ball Possession (%)",
+    "Touches in Box",
+    "PPDA",
+    "Passes",
+    "Passing %",
+    "Long Passes",
+    "Passes to Final 3rd",
+]
+
+# Lower is better -> invert the RADAR SHAPE (so “better” is outward)
+# and reverse the RING NUMBERS outward
+TEAM_LOWER_BETTER = {"xGA", "Goals Conceded", "PPDA"}
+
+def _team_axis_label(metric_name: str) -> str:
+    # No extra “lower is better” text on outside labels
+    return metric_name
+
+# ---- Dark theme only ----
+PAGE_BG = "#0a0f1c"
+AX_BG   = "#0a0f1c"
+GRID_BAND_OUTER = "#162235"
+GRID_BAND_INNER = "#0d1524"
+RING_COLOR_INNER = "#3a4050"
+RING_COLOR_OUTER = "#cbd5e1"
+LABEL_COLOR = "#f5f5f5"
+TICK_COLOR  = "#e5e7eb"
+COL_A = "#C81E1E"   # red
+COL_B = "#1D4ED8"   # blue
+FILL_A = (200/255, 30/255, 30/255, 0.55)
+FILL_B = (29/255, 78/255, 216/255, 0.55)
+
+RING_LW = 1.0
+TITLE_FS = 22
+SUB_FS = 11
+AXIS_FS = 9.5
+TICK_FS = 7
+INNER_HOLE = 10
+
+def _tangent_rotation(ax, theta):
+    return np.degrees(ax.get_theta_direction() * theta + ax.get_theta_offset()) - 90.0
+
+@st.cache_data(show_spinner=False, ttl=60*60)
+def _load_team_df(path: str) -> pd.DataFrame:
+    df_t = pd.read_csv(path)
+    if "Team" in df_t.columns:
+        df_t["Team"] = df_t["Team"].astype(str).str.strip()
+    for c in TEAM_RADAR_METRICS:
+        if c in df_t.columns and c != "Team":
+            df_t[c] = pd.to_numeric(df_t[c], errors="coerce")
+    return df_t
+
+def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
+    """True decile values (0..100) per metric (RAW values)."""
+    qs = np.linspace(0, 100, 11)
+    out = []
+    for m in metrics:
+        vals = pool[m].dropna().values
+        out.append(np.nanpercentile(vals, qs) if len(vals) else np.full_like(qs, np.nan))
+    return out
+
+def _scale_pool_minmax(pool: pd.DataFrame, metrics: list[str]) -> dict:
+    """
+    Build per-metric min/max for scaling raw values to 0..100.
+    Using min/max of pool; if flat, max==min -> avoid div0.
+    """
+    mm = {}
+    for m in metrics:
+        s = pd.to_numeric(pool[m], errors="coerce")
+        mn = float(np.nanmin(s.values)) if np.isfinite(np.nanmin(s.values)) else np.nan
+        mx = float(np.nanmax(s.values)) if np.isfinite(np.nanmax(s.values)) else np.nan
+        mm[m] = (mn, mx)
+    return mm
+
+def _scale_row_to_0_100(row: pd.Series, metrics: list[str], mm: dict) -> np.ndarray:
+    """
+    Convert RAW values to 0..100 scale per metric so they can share one radar.
+    For TEAM_LOWER_BETTER metrics, invert AFTER scaling so “better” still points outward.
+    """
+    out = []
+    for m in metrics:
+        v = pd.to_numeric(row.get(m, np.nan), errors="coerce")
+        mn, mx = mm.get(m, (np.nan, np.nan))
+        if pd.isna(v) or pd.isna(mn) or pd.isna(mx) or mx == mn:
+            out.append(np.nan)
+            continue
+        scaled = (float(v) - float(mn)) / (float(mx) - float(mn)) * 100.0
+        if m in TEAM_LOWER_BETTER:
+            scaled = 100.0 - scaled
+        out.append(scaled)
+    return np.array(out, dtype=float)
+
+def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
+    N = len(labels)
+    theta = np.linspace(0, 2*np.pi, N, endpoint=False)
+    theta_c = np.concatenate([theta, theta[:1]])
+    Ar = np.concatenate([A_r, A_r[:1]])
+    Br = np.concatenate([B_r, B_r[:1]])
+
+    fig = plt.figure(figsize=(12.8, 7.6), dpi=240)
+    fig.patch.set_facecolor(PAGE_BG)
+    ax = plt.subplot(111, polar=True)
+    ax.set_facecolor(AX_BG)
+
+    ax.set_theta_offset(np.pi/2)
+    ax.set_theta_direction(-1)
+
+    ax.set_xticks(theta)
+    ax.set_xticklabels([])
+    ax.set_yticks([])
+    ax.grid(False)
+    [s.set_visible(False) for s in ax.spines.values()]
+
+    ring_edges = np.linspace(INNER_HOLE, 100, 11)
+
+    # radial bands
+    for i in range(10):
+        r0, r1 = ring_edges[i], ring_edges[i+1]
+        band = GRID_BAND_OUTER if ((9 - i) % 2 == 0) else GRID_BAND_INNER
+        ax.add_artist(Wedge(
+            (0, 0), r1, 0, 360, width=(r1 - r0),
+            transform=ax.transData._b, facecolor=band,
+            edgecolor="none", zorder=0.8
+        ))
+
+    # ring outlines
+    ring_t = np.linspace(0, 2*np.pi, 361)
+    for j, r in enumerate(ring_edges):
+        col = RING_COLOR_OUTER if j == len(ring_edges) - 1 else RING_COLOR_INNER
+        ax.plot(ring_t, np.full_like(ring_t, r), color=col, lw=RING_LW, zorder=0.9)
+
+    # ring numbers (RAW deciles, 1dp):
+    # For LOWER_BETTER metrics, show numbers decreasing as you go outward.
+    start_idx = 2
+    for i, ang in enumerate(theta):
+        vals = ticks[i]
+        vals_to_plot = vals[::-1] if metrics[i] in TEAM_LOWER_BETTER else vals
+        for rr, v in zip(ring_edges[start_idx:], vals_to_plot[start_idx:]):
+            if pd.isna(v):
+                continue
+            ax.text(
+                ang, rr - 1.8, f"{float(v):.1f}",
+                ha="center", va="center",
+                fontsize=TICK_FS, color=TICK_COLOR, zorder=1.1
+            )
+
+    # outside labels
+    OUTER_LABEL_R = 107.2
+    for ang, lab in zip(theta, labels):
+        rot = _tangent_rotation(ax, ang)
+        rot_norm = ((rot + 180.0) % 360.0) - 180.0
+        if rot_norm > 90 or rot_norm < -90:
+            rot += 180.0
+        ax.text(
+            ang, OUTER_LABEL_R, lab,
+            rotation=rot, rotation_mode="anchor",
+            ha="center", va="center",
+            fontsize=AXIS_FS, color=LABEL_COLOR, fontweight=600,
+            clip_on=False, zorder=2.2
+        )
+
+    # center hole
+    ax.add_artist(Circle((0, 0), radius=INNER_HOLE - 0.6,
+                         transform=ax.transData._b, color=PAGE_BG, zorder=1.2, ec="none"))
+
+    # polygons (SCALED RAW 0..100)
+    ax.plot(theta_c, Ar, color=COL_A, lw=2.2, zorder=3)
+    ax.fill(theta_c, Ar, color=FILL_A, zorder=2.5)
+    ax.plot(theta_c, Br, color=COL_B, lw=2.2, zorder=3)
+    ax.fill(theta_c, Br, color=FILL_B, zorder=2.5)
+
+    ax.set_rlim(0, 100)
+
+    # headers + subtitle
+    fig.text(0.10, 0.95, headerA, color=COL_A, fontsize=TITLE_FS, fontweight="bold", ha="left")
+    fig.text(0.10, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="left")
+
+    fig.text(0.90, 0.95, headerB, color=COL_B, fontsize=TITLE_FS, fontweight="bold", ha="right")
+    fig.text(0.90, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="right")
+
+    return fig
+
+# ---- MAIN ----
+try:
+    teams_df = _load_team_df(TEAM_CSV_PATH)
+except Exception as e:
+    st.error(f"Could not load {TEAM_CSV_PATH}: {e}")
+    teams_df = pd.DataFrame()
+
+if teams_df.empty or "Team" not in teams_df.columns:
+    st.info("Team radar unavailable (missing ChinaTeams.csv or 'Team' column).")
+else:
+    teamA_name = str(TEAM_NAME).strip()
+
+    if teamA_name not in teams_df["Team"].values:
+        hit = teams_df[teams_df["Team"].str.lower() == teamA_name.lower()]
+        if not hit.empty:
+            teamA_name = hit.iloc[0]["Team"]
+        else:
+            st.warning(f"Selected TEAM_NAME '{TEAM_NAME}' not found in ChinaTeams.csv. Pick Team A manually below.")
+            teamA_name = st.selectbox("Team A (red)", sorted(teams_df["Team"].unique().tolist()), key="team_radar_A")
+
+    opps = [t for t in sorted(teams_df["Team"].unique().tolist()) if t != teamA_name]
+    teamB_name = st.selectbox("Team B (blue)", opps, key="team_radar_B")
+
+    metrics = [m for m in TEAM_RADAR_METRICS if m in teams_df.columns and m != "Team"]
+    pool = teams_df.dropna(subset=["Team"]).copy()
+
+    # drop teams with all-metric NaNs
+    pool = pool.dropna(subset=metrics, how="all")
+
+    if not metrics:
+        st.info("No radar metrics found in ChinaTeams.csv.")
+    else:
+        rowA_all = pool[pool["Team"] == teamA_name]
+        rowB_all = pool[pool["Team"] == teamB_name]
+        if rowA_all.empty or rowB_all.empty:
+            st.info("One of the selected teams is missing from the pool after cleaning.")
+        else:
+            rowA = rowA_all.iloc[0]
+            rowB = rowB_all.iloc[0]
+
+            # scale raw -> 0..100 for radar radii (per metric)
+            mm = _scale_pool_minmax(pool, metrics)
+            A_r = _scale_row_to_0_100(rowA, metrics, mm)
+            B_r = _scale_row_to_0_100(rowB, metrics, mm)
+
+            labels = [_team_axis_label(m) for m in metrics]
+
+            # ring numbers = raw deciles (1dp), with lower-better reversed outward
+            ticks = _decile_ticks(pool, metrics)
+
+            fig = draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA=teamA_name, headerB=teamB_name)
+
+            st.caption(
+                "Radar shapes use **RAW team values scaled to 0–100 per metric** (min→0, max→100 within the ChinaTeams pool). "
+                "For xGA, Goals Conceded, PPDA the shape is inverted so **lower is better** points outward. "
+                "Ring numbers are **raw deciles (1dp)**; for those lower-better metrics, the ring numbers run **downwards** as you go outward."
+            )
+            st.pyplot(fig, use_container_width=True)
+
+# ----------------- END Team Radar -----------------
+
+
 # =========================
 # SQUAD FILTERS
 # =========================
@@ -2738,267 +3001,7 @@ plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
 
 
-# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, RAW VALUES (scaled), LOWER-BETTER rings run “backwards” -----------------
-import numpy as np
-import pandas as pd
-import streamlit as st
-import matplotlib.pyplot as plt
-from matplotlib.patches import Wedge, Circle
 
-st.markdown("---")
-st.header("📊 Team Comparison Radar")
-
-# ---- CONFIG ----
-TEAM_CSV_PATH = "ChinaTeams.csv"
-SUBTITLE_TEXT = "China Super League 2025"
-
-TEAM_RADAR_METRICS = [
-    "Team",
-    "xG",
-    "Goals",
-    "xGA",
-    "Goals Conceded",
-    "Ball Possession (%)",
-    "Touches in Box",
-    "PPDA",
-    "Passes",
-    "Passing %",
-    "Long Passes",
-    "Passes to Final 3rd",
-]
-
-# Lower is better -> invert the RADAR SHAPE (so “better” is outward)
-# and reverse the RING NUMBERS outward
-TEAM_LOWER_BETTER = {"xGA", "Goals Conceded", "PPDA"}
-
-def _team_axis_label(metric_name: str) -> str:
-    # No extra “lower is better” text on outside labels
-    return metric_name
-
-# ---- Dark theme only ----
-PAGE_BG = "#0a0f1c"
-AX_BG   = "#0a0f1c"
-GRID_BAND_OUTER = "#162235"
-GRID_BAND_INNER = "#0d1524"
-RING_COLOR_INNER = "#3a4050"
-RING_COLOR_OUTER = "#cbd5e1"
-LABEL_COLOR = "#f5f5f5"
-TICK_COLOR  = "#e5e7eb"
-COL_A = "#C81E1E"   # red
-COL_B = "#1D4ED8"   # blue
-FILL_A = (200/255, 30/255, 30/255, 0.55)
-FILL_B = (29/255, 78/255, 216/255, 0.55)
-
-RING_LW = 1.0
-TITLE_FS = 22
-SUB_FS = 11
-AXIS_FS = 9.5
-TICK_FS = 7
-INNER_HOLE = 10
-
-def _tangent_rotation(ax, theta):
-    return np.degrees(ax.get_theta_direction() * theta + ax.get_theta_offset()) - 90.0
-
-@st.cache_data(show_spinner=False, ttl=60*60)
-def _load_team_df(path: str) -> pd.DataFrame:
-    df_t = pd.read_csv(path)
-    if "Team" in df_t.columns:
-        df_t["Team"] = df_t["Team"].astype(str).str.strip()
-    for c in TEAM_RADAR_METRICS:
-        if c in df_t.columns and c != "Team":
-            df_t[c] = pd.to_numeric(df_t[c], errors="coerce")
-    return df_t
-
-def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
-    """True decile values (0..100) per metric (RAW values)."""
-    qs = np.linspace(0, 100, 11)
-    out = []
-    for m in metrics:
-        vals = pool[m].dropna().values
-        out.append(np.nanpercentile(vals, qs) if len(vals) else np.full_like(qs, np.nan))
-    return out
-
-def _scale_pool_minmax(pool: pd.DataFrame, metrics: list[str]) -> dict:
-    """
-    Build per-metric min/max for scaling raw values to 0..100.
-    Using min/max of pool; if flat, max==min -> avoid div0.
-    """
-    mm = {}
-    for m in metrics:
-        s = pd.to_numeric(pool[m], errors="coerce")
-        mn = float(np.nanmin(s.values)) if np.isfinite(np.nanmin(s.values)) else np.nan
-        mx = float(np.nanmax(s.values)) if np.isfinite(np.nanmax(s.values)) else np.nan
-        mm[m] = (mn, mx)
-    return mm
-
-def _scale_row_to_0_100(row: pd.Series, metrics: list[str], mm: dict) -> np.ndarray:
-    """
-    Convert RAW values to 0..100 scale per metric so they can share one radar.
-    For TEAM_LOWER_BETTER metrics, invert AFTER scaling so “better” still points outward.
-    """
-    out = []
-    for m in metrics:
-        v = pd.to_numeric(row.get(m, np.nan), errors="coerce")
-        mn, mx = mm.get(m, (np.nan, np.nan))
-        if pd.isna(v) or pd.isna(mn) or pd.isna(mx) or mx == mn:
-            out.append(np.nan)
-            continue
-        scaled = (float(v) - float(mn)) / (float(mx) - float(mn)) * 100.0
-        if m in TEAM_LOWER_BETTER:
-            scaled = 100.0 - scaled
-        out.append(scaled)
-    return np.array(out, dtype=float)
-
-def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
-    N = len(labels)
-    theta = np.linspace(0, 2*np.pi, N, endpoint=False)
-    theta_c = np.concatenate([theta, theta[:1]])
-    Ar = np.concatenate([A_r, A_r[:1]])
-    Br = np.concatenate([B_r, B_r[:1]])
-
-    fig = plt.figure(figsize=(12.8, 7.6), dpi=240)
-    fig.patch.set_facecolor(PAGE_BG)
-    ax = plt.subplot(111, polar=True)
-    ax.set_facecolor(AX_BG)
-
-    ax.set_theta_offset(np.pi/2)
-    ax.set_theta_direction(-1)
-
-    ax.set_xticks(theta)
-    ax.set_xticklabels([])
-    ax.set_yticks([])
-    ax.grid(False)
-    [s.set_visible(False) for s in ax.spines.values()]
-
-    ring_edges = np.linspace(INNER_HOLE, 100, 11)
-
-    # radial bands
-    for i in range(10):
-        r0, r1 = ring_edges[i], ring_edges[i+1]
-        band = GRID_BAND_OUTER if ((9 - i) % 2 == 0) else GRID_BAND_INNER
-        ax.add_artist(Wedge(
-            (0, 0), r1, 0, 360, width=(r1 - r0),
-            transform=ax.transData._b, facecolor=band,
-            edgecolor="none", zorder=0.8
-        ))
-
-    # ring outlines
-    ring_t = np.linspace(0, 2*np.pi, 361)
-    for j, r in enumerate(ring_edges):
-        col = RING_COLOR_OUTER if j == len(ring_edges) - 1 else RING_COLOR_INNER
-        ax.plot(ring_t, np.full_like(ring_t, r), color=col, lw=RING_LW, zorder=0.9)
-
-    # ring numbers (RAW deciles, 1dp):
-    # For LOWER_BETTER metrics, show numbers decreasing as you go outward.
-    start_idx = 2
-    for i, ang in enumerate(theta):
-        vals = ticks[i]
-        vals_to_plot = vals[::-1] if metrics[i] in TEAM_LOWER_BETTER else vals
-        for rr, v in zip(ring_edges[start_idx:], vals_to_plot[start_idx:]):
-            if pd.isna(v):
-                continue
-            ax.text(
-                ang, rr - 1.8, f"{float(v):.1f}",
-                ha="center", va="center",
-                fontsize=TICK_FS, color=TICK_COLOR, zorder=1.1
-            )
-
-    # outside labels
-    OUTER_LABEL_R = 107.2
-    for ang, lab in zip(theta, labels):
-        rot = _tangent_rotation(ax, ang)
-        rot_norm = ((rot + 180.0) % 360.0) - 180.0
-        if rot_norm > 90 or rot_norm < -90:
-            rot += 180.0
-        ax.text(
-            ang, OUTER_LABEL_R, lab,
-            rotation=rot, rotation_mode="anchor",
-            ha="center", va="center",
-            fontsize=AXIS_FS, color=LABEL_COLOR, fontweight=600,
-            clip_on=False, zorder=2.2
-        )
-
-    # center hole
-    ax.add_artist(Circle((0, 0), radius=INNER_HOLE - 0.6,
-                         transform=ax.transData._b, color=PAGE_BG, zorder=1.2, ec="none"))
-
-    # polygons (SCALED RAW 0..100)
-    ax.plot(theta_c, Ar, color=COL_A, lw=2.2, zorder=3)
-    ax.fill(theta_c, Ar, color=FILL_A, zorder=2.5)
-    ax.plot(theta_c, Br, color=COL_B, lw=2.2, zorder=3)
-    ax.fill(theta_c, Br, color=FILL_B, zorder=2.5)
-
-    ax.set_rlim(0, 100)
-
-    # headers + subtitle
-    fig.text(0.10, 0.95, headerA, color=COL_A, fontsize=TITLE_FS, fontweight="bold", ha="left")
-    fig.text(0.10, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="left")
-
-    fig.text(0.90, 0.95, headerB, color=COL_B, fontsize=TITLE_FS, fontweight="bold", ha="right")
-    fig.text(0.90, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="right")
-
-    return fig
-
-# ---- MAIN ----
-try:
-    teams_df = _load_team_df(TEAM_CSV_PATH)
-except Exception as e:
-    st.error(f"Could not load {TEAM_CSV_PATH}: {e}")
-    teams_df = pd.DataFrame()
-
-if teams_df.empty or "Team" not in teams_df.columns:
-    st.info("Team radar unavailable (missing ChinaTeams.csv or 'Team' column).")
-else:
-    teamA_name = str(TEAM_NAME).strip()
-
-    if teamA_name not in teams_df["Team"].values:
-        hit = teams_df[teams_df["Team"].str.lower() == teamA_name.lower()]
-        if not hit.empty:
-            teamA_name = hit.iloc[0]["Team"]
-        else:
-            st.warning(f"Selected TEAM_NAME '{TEAM_NAME}' not found in ChinaTeams.csv. Pick Team A manually below.")
-            teamA_name = st.selectbox("Team A (red)", sorted(teams_df["Team"].unique().tolist()), key="team_radar_A")
-
-    opps = [t for t in sorted(teams_df["Team"].unique().tolist()) if t != teamA_name]
-    teamB_name = st.selectbox("Team B (blue)", opps, key="team_radar_B")
-
-    metrics = [m for m in TEAM_RADAR_METRICS if m in teams_df.columns and m != "Team"]
-    pool = teams_df.dropna(subset=["Team"]).copy()
-
-    # drop teams with all-metric NaNs
-    pool = pool.dropna(subset=metrics, how="all")
-
-    if not metrics:
-        st.info("No radar metrics found in ChinaTeams.csv.")
-    else:
-        rowA_all = pool[pool["Team"] == teamA_name]
-        rowB_all = pool[pool["Team"] == teamB_name]
-        if rowA_all.empty or rowB_all.empty:
-            st.info("One of the selected teams is missing from the pool after cleaning.")
-        else:
-            rowA = rowA_all.iloc[0]
-            rowB = rowB_all.iloc[0]
-
-            # scale raw -> 0..100 for radar radii (per metric)
-            mm = _scale_pool_minmax(pool, metrics)
-            A_r = _scale_row_to_0_100(rowA, metrics, mm)
-            B_r = _scale_row_to_0_100(rowB, metrics, mm)
-
-            labels = [_team_axis_label(m) for m in metrics]
-
-            # ring numbers = raw deciles (1dp), with lower-better reversed outward
-            ticks = _decile_ticks(pool, metrics)
-
-            fig = draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA=teamA_name, headerB=teamB_name)
-
-            st.caption(
-                "Radar shapes use **RAW team values scaled to 0–100 per metric** (min→0, max→100 within the ChinaTeams pool). "
-                "For xGA, Goals Conceded, PPDA the shape is inverted so **lower is better** points outward. "
-                "Ring numbers are **raw deciles (1dp)**; for those lower-better metrics, the ring numbers run **downwards** as you go outward."
-            )
-            st.pyplot(fig, use_container_width=True)
-
-# ----------------- END Team Radar -----------------
 
 
 
