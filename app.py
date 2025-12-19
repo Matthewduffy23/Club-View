@@ -26,23 +26,44 @@ import requests
 import streamlit as st
 
 # =========================
-# CONFIG (edit in code only)
+# CONFIG (defaults; user can switch team at runtime)
 # =========================
 CSV_PATH = "Chinaall.csv"
-TEAM_NAME = "Chengdu Rongcheng"
 
-CREST_PATH = "images/chengdu_rongcheng_f.c.svg.png"   # adjust if needed
-FLAG_PATH  = "images/china.png"                       # optional (header flag)
-PERFORMANCE_IMAGE_PATH = "images/chengugraph.png"
+# --- Default profiles (you can keep adding teams here) ---
+TEAM_PROFILES = {
+    "Chengdu Rongcheng": {
+        "TEAM_NAME": "Chengdu Rongcheng",
+        "CREST_PATH": "images/chengdu_rongcheng_f.c.svg.png",
+        "PERFORMANCE_IMAGE_PATH": "images/chengugraph.png",
+        "FLAG_PATH": "images/china.png",
+        "LEAGUE_TEXT": "Super League",
+        "OVERALL": 99,
+        "ATT_HDR": 89,
+        "POS_HDR": 88,   # renamed from MID_HDR -> POS_HDR
+        "DEF_HDR": 90,
+        "AVG_AGE": 29.4,
+        "LEAGUE_POSITION": 3,
+        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/737052/squad/chengdu-rongcheng-fc",
+    },
+    "Beijing Guoan": {
+        "TEAM_NAME": "Beijing Guoan",
+        "CREST_PATH": "images/beijing.png",
+        "PERFORMANCE_IMAGE_PATH": "images/beijinggraph.png",
+        "FLAG_PATH": "images/china.png",
+        "LEAGUE_TEXT": "Super League",
+        # put your real defaults here; user can override in-app too
+        "OVERALL": 90,
+        "ATT_HDR": 88,
+        "POS_HDR": 86,
+        "DEF_HDR": 87,
+        "AVG_AGE": 28.5,
+        "LEAGUE_POSITION": 4,
+        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/??/squad/beijing-guoan",  # optional; replace if you want
+    },
+}
 
-# Header manual inputs
-OVERALL = 99
-ATT_HDR = 89
-MID_HDR = 88
-DEF_HDR = 90
-LEAGUE_TEXT = "Super League"
-AVG_AGE = 29.4
-LEAGUE_POSITION = 3
+DEFAULT_TEAM_KEY = "Chengdu Rongcheng"
 
 DEFAULT_AVATAR = "https://i.redd.it/43axcjdu59nd1.jpeg"
 
@@ -53,9 +74,6 @@ DEFAULT_AVATAR = "https://i.redd.it/43axcjdu59nd1.jpeg"
 #   "liu dianzuo": "https://....png"
 # }
 PLAYER_PHOTO_OVERRIDES_JSON = "player_photos.json"
-
-# FotMob team page for auto photo map (cached)
-FOTMOB_TEAM_URL = "https://www.fotmob.com/teams/737052/squad/chengdu-rongcheng-fc"
 
 # =========================
 # COLOR SCALE
@@ -377,6 +395,8 @@ def fotmob_photo_map(team_url: str) -> Dict[str, str]:
     This is intentionally conservative; if parsing fails, returns {}.
     """
     try:
+        if not team_url:
+            return {}
         headers = {"User-Agent": "Mozilla/5.0"}
         html = requests.get(team_url, headers=headers, timeout=20).text
 
@@ -656,32 +676,6 @@ METRICS_BY_GROUP = {
     },
 }
 
-def _available_metric_pairs(df: pd.DataFrame, pairs: List[Tuple[str,str]]) -> List[Tuple[str,str]]:
-    out = []
-    for lab, met in pairs:
-        if met in df.columns and f"{met} Percentile" in df.columns:
-            out.append((lab, met))
-    return out
-
-def _metric_pct(row: pd.Series, met: str) -> float:
-    col = f"{met} Percentile"
-    v = row.get(col, np.nan)
-    try:
-        v = float(v)
-    except Exception:
-        v = np.nan
-    if pd.isna(v):
-        return np.nan
-    return v
-
-def _metric_val(row: pd.Series, met: str) -> float:
-    v = row.get(met, np.nan)
-    try:
-        v = float(v)
-    except Exception:
-        v = np.nan
-    return v
-
 # =========================
 # STREAMLIT SETUP
 # =========================
@@ -785,6 +779,39 @@ header, footer { visibility:hidden; }
 @media (max-width: 600px){ .h-label{ font-size:18px; } }
 
 .header-info{ margin-top:10px; display:flex; flex-direction:column; gap:4px; font-size:14px; color:#b0b0b3; }
+
+/* --- tooltip wrapper for header pills --- */
+.tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.tip .tiptext{
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity .15s ease;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 46px;
+  z-index: 50;
+  width: 240px;
+  background: rgba(10,15,28,.98);
+  color: #e8ecff;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 700;
+  pointer-events: none;
+  text-align: left;
+}
+.tip:hover .tiptext{
+  visibility: visible;
+  opacity: 1;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -812,10 +839,44 @@ mins_col = detect_minutes_col(df_all)
 df_all[mins_col] = pd.to_numeric(df_all[mins_col], errors="coerce").fillna(0)
 
 # =========================
+# TEAM SELECTOR (top) + OPTIONAL OVERRIDES
+# =========================
+team_options = list(TEAM_PROFILES.keys())
+default_idx = team_options.index(DEFAULT_TEAM_KEY) if DEFAULT_TEAM_KEY in team_options else 0
+
+# Keep this ABOVE the header so everything below uses the chosen team
+selected_team_key = st.selectbox("Team", options=team_options, index=default_idx, key="team_select")
+
+base_profile = TEAM_PROFILES.get(selected_team_key, TEAM_PROFILES[DEFAULT_TEAM_KEY]).copy()
+
+with st.expander("Custom team header values (optional)", expanded=False):
+    # Allows custom input for either Chengdu or Beijing (or any future team)
+    TEAM_NAME = st.text_input("Team name", value=base_profile["TEAM_NAME"], key="ov_team_name")
+    LEAGUE_TEXT = st.text_input("League text", value=base_profile["LEAGUE_TEXT"], key="ov_league_text")
+    LEAGUE_POSITION = st.number_input("League position", min_value=1, max_value=40, value=int(base_profile["LEAGUE_POSITION"]), step=1, key="ov_league_pos")
+    AVG_AGE = st.number_input("Average age", min_value=14.0, max_value=45.0, value=float(base_profile["AVG_AGE"]), step=0.1, key="ov_avg_age")
+
+    OVERALL = st.number_input("Overall (0–99)", min_value=0, max_value=99, value=int(base_profile["OVERALL"]), step=1, key="ov_overall")
+    ATT_HDR = st.number_input("ATT (0–99)", min_value=0, max_value=99, value=int(base_profile["ATT_HDR"]), step=1, key="ov_att")
+    POS_HDR = st.number_input("POS (0–99)", min_value=0, max_value=99, value=int(base_profile["POS_HDR"]), step=1, key="ov_pos")
+    DEF_HDR = st.number_input("DEF (0–99)", min_value=0, max_value=99, value=int(base_profile["DEF_HDR"]), step=1, key="ov_def")
+
+    CREST_PATH = st.text_input("Crest path", value=base_profile["CREST_PATH"], key="ov_crest")
+    PERFORMANCE_IMAGE_PATH = st.text_input("Performance image path", value=base_profile["PERFORMANCE_IMAGE_PATH"], key="ov_perf_img")
+    FLAG_PATH = st.text_input("Flag path (optional)", value=base_profile.get("FLAG_PATH",""), key="ov_flag")
+    FOTMOB_TEAM_URL = st.text_input("FotMob squad URL (optional)", value=base_profile.get("FOTMOB_TEAM_URL",""), key="ov_fotmob")
+
+# =========================
 # HEADER (compact + responsive, NOT too wide)
 # =========================
 crest_uri = img_to_data_uri(CREST_PATH)
 flag_uri  = img_to_data_uri(FLAG_PATH)
+
+# Tooltip texts (your exact copy)
+TIP_OVERALL = "Weighted percentile scoring vs others in League. Overall = xPoints"
+TIP_ATT     = "Weighted percentile scoring vs others in League. ATT = Chances Created & Goals"
+TIP_POS     = "Weighted percentile scoring vs others in League. POS = Possession, Passing & Territory"
+TIP_DEF     = "Weighted percentile scoring vs others in League. DEF Chances Conceded."
 
 header_html = (
 f"<div class='header-shell'>"
@@ -830,14 +891,38 @@ f"    </div>"
 f"    <div>"
 f"      <div class='header-title'>{TEAM_NAME}</div>"
 f"      <div class='header-metrics'>"
-f"        <div class='h-metric'><div class='h-pill' style='background:{_pro_rating_color(OVERALL)};'>{OVERALL}</div><div class='h-label'>Overall</div></div>"
-f"        <div class='h-metric'><div class='h-pill' style='background:{_pro_rating_color(ATT_HDR)};'>{ATT_HDR}</div><div class='h-label'>ATT</div></div>"
-f"        <div class='h-metric'><div class='h-pill' style='background:{_pro_rating_color(MID_HDR)};'>{MID_HDR}</div><div class='h-label'>MID</div></div>"
-f"        <div class='h-metric'><div class='h-pill' style='background:{_pro_rating_color(DEF_HDR)};'>{DEF_HDR}</div><div class='h-label'>DEF</div></div>"
+f"        <div class='h-metric'>"
+f"          <div class='tip'>"
+f"            <div class='h-pill' style='background:{_pro_rating_color(OVERALL)};'>{OVERALL}</div>"
+f"            <div class='tiptext'>{TIP_OVERALL}</div>"
+f"          </div>"
+f"          <div class='h-label'>Overall</div>"
+f"        </div>"
+f"        <div class='h-metric'>"
+f"          <div class='tip'>"
+f"            <div class='h-pill' style='background:{_pro_rating_color(ATT_HDR)};'>{ATT_HDR}</div>"
+f"            <div class='tiptext'>{TIP_ATT}</div>"
+f"          </div>"
+f"          <div class='h-label'>ATT</div>"
+f"        </div>"
+f"        <div class='h-metric'>"
+f"          <div class='tip'>"
+f"            <div class='h-pill' style='background:{_pro_rating_color(POS_HDR)};'>{POS_HDR}</div>"
+f"            <div class='tiptext'>{TIP_POS}</div>"
+f"          </div>"
+f"          <div class='h-label'>POS</div>"
+f"        </div>"
+f"        <div class='h-metric'>"
+f"          <div class='tip'>"
+f"            <div class='h-pill' style='background:{_pro_rating_color(DEF_HDR)};'>{DEF_HDR}</div>"
+f"            <div class='tiptext'>{TIP_DEF}</div>"
+f"          </div>"
+f"          <div class='h-label'>DEF</div>"
+f"        </div>"
 f"      </div>"
 f"      <div class='header-info'>"
 f"        <div><b>Average Age:</b> {AVG_AGE:.2f}</div>"
-f"        <div><b>League Position:</b> {LEAGUE_POSITION}</div>"
+f"        <div><b>League Position:</b> {int(LEAGUE_POSITION)}</div>"
 f"      </div>"
 f"    </div>"
 f"  </div>"
@@ -924,28 +1009,28 @@ def _chip_row(items, bg):
         f"color:#0b0d12;"
         f"padding:6px 14px;"
         f"border-radius:999px;"
-        f"font-weight:800;"
+        f"font-weight:600;"              # <- less bold
         f"font-size:14px;"
-        f"margin-right:8px;"
+        f"margin:0 8px 10px 0;"          # <- better wrap spacing
         f"display:inline-block;'>"
         f"{t}</span>"
         for t in items
     )
 
 team_notes_html = f"""
-<div style="margin-top:16px;margin-bottom:32px;">
-  <div style="margin-bottom:12px;">
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Style:</div>
+<div style="margin-top:18px;margin-bottom:38px;">
+  <div style="margin-bottom:20px;">
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Style:</div>
     {_chip_row(TEAM_STYLE, "#bfdbfe")}
   </div>
 
-  <div style="margin-bottom:12px;">
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Strengths:</div>
+  <div style="margin-bottom:20px;">
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Strengths:</div>
     {_chip_row(TEAM_STRENGTHS, "#a7f3d0")}
   </div>
 
-  <div>
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:6px;">Weaknesses:</div>
+  <div style="margin-bottom:6px;">
+    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Weaknesses:</div>
     {_chip_row(TEAM_WEAKNESSES, "#fecaca")}
   </div>
 </div>
@@ -953,6 +1038,12 @@ team_notes_html = f"""
 
 st.markdown(team_notes_html, unsafe_allow_html=True)
 
+# -------------------------------------------------------------------------
+# IMPORTANT NOTE:
+# I only have the portion of your file you pasted in-chat (up through TEAM NOTES).
+# Paste the remainder of your app below this line unchanged so the rest stays
+# "everything else exactly the same" (player cards, filters, scatter, etc.).
+# -------------------------------------------------------------------------
 # =========================
 # FEATURE — TEAM PERFORMANCE
 # =========================
@@ -972,19 +1063,20 @@ if not os.path.exists(TEAM_CSV):
     st.error(f"ChinaTeams.csv not found at: {TEAM_CSV}")
     st.stop()
 
-df_team = pd.read_csv(TEAM_CSV)
+# NOTE: renamed to avoid clashing with later df_team_players
+df_team_stats = pd.read_csv(TEAM_CSV)
 
-if "Team" not in df_team.columns:
+if "Team" not in df_team_stats.columns:
     st.error("ChinaTeams.csv must include a 'Team' column.")
     st.stop()
 
 # Coerce numeric columns
-for c in df_team.columns:
+for c in df_team_stats.columns:
     if c != "Team":
-        df_team[c] = pd.to_numeric(df_team[c], errors="coerce")
+        df_team_stats[c] = pd.to_numeric(df_team_stats[c], errors="coerce")
 
-df_team["Team"] = df_team["Team"].astype(str).str.strip()
-df_team = df_team.dropna(subset=["Team"]).copy()
+df_team_stats["Team"] = df_team_stats["Team"].astype(str).str.strip()
+df_team_stats = df_team_stats.dropna(subset=["Team"]).copy()
 
 # -------------------------------------------------
 # Metric options (football metrics only)
@@ -1010,8 +1102,8 @@ PREFERRED_TEAM_METRICS = [
 ]
 
 numeric_cols = [
-    c for c in df_team.columns
-    if c != "Team" and pd.api.types.is_numeric_dtype(df_team[c])
+    c for c in df_team_stats.columns
+    if c != "Team" and pd.api.types.is_numeric_dtype(df_team_stats[c])
 ]
 
 preferred = [c for c in PREFERRED_TEAM_METRICS if c in numeric_cols]
@@ -1024,7 +1116,7 @@ if not TEAM_FEATURES:
 
 # Defaults
 x_default = "xG" if "xG" in TEAM_FEATURES else TEAM_FEATURES[0]
-y_default = "xGA" if "xGA" in TEAM_FEATURES else TEAM_FEATURES[1]
+y_default = "xGA" if "xGA" in TEAM_FEATURES else (TEAM_FEATURES[1] if len(TEAM_FEATURES) > 1 else TEAM_FEATURES[0])
 
 with st.expander("Team scatter settings", expanded=False):
     c1, c2 = st.columns(2)
@@ -1043,17 +1135,17 @@ with st.expander("Team scatter settings", expanded=False):
             key="team_sc_y",
         )
 
-pool = df_team.dropna(subset=[x_metric, y_metric]).copy()
+pool = df_team_stats.dropna(subset=[x_metric, y_metric]).copy()
 if pool.empty:
     st.info("No teams have data for the selected metrics.")
     st.stop()
 
-# Highlight TEAM_NAME
-team_name = TEAM_NAME if "TEAM_NAME" in globals() else ""
-team_mask = pool["Team"].eq(team_name) if team_name else pd.Series(False, index=pool.index)
+# Highlight TEAM_NAME (normalized)
+team_name = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else ""
+team_mask = pool["Team"].astype(str).str.strip().eq(team_name) if team_name else pd.Series(False, index=pool.index)
 
-others = pool[~team_mask]
-highlight = pool[team_mask]
+others = pool.loc[~team_mask].copy()
+highlight = pool.loc[team_mask].copy()
 
 # -------------------------------------------------
 # Helpers
@@ -1122,7 +1214,7 @@ ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder
 # Labels
 for _, r in pool.iterrows():
     t = ax.annotate(
-        r["Team"],
+        str(r["Team"]),
         (r[x_metric], r[y_metric]),
         xytext=(10, 10),
         textcoords="offset points",
@@ -1131,7 +1223,7 @@ for _, r in pool.iterrows():
         color="#f5f5f5",
         ha="left",
         va="bottom",
-        zorder=6 if r["Team"] == team_name else 5,
+        zorder=6 if str(r["Team"]).strip() == team_name else 5,
     )
     t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
 
@@ -1221,14 +1313,15 @@ df_all = add_pool_percentiles(df_all, pool_mask=pool_mask, min_group=5)
 df_all["RoleScores"] = df_all.apply(compute_role_scores_for_row, axis=1)
 
 # =========================
-# TEAM FILTER FOR DISPLAY LIST
+# TEAM FILTER FOR DISPLAY LIST  (FOLLOW SELECTED TEAM_NAME)
 # =========================
-df_team = df_all[df_all["Team"].astype(str).str.strip() == TEAM_NAME].copy()
-if df_team.empty:
-    st.info(f"No players found for Team = '{TEAM_NAME}'.")
+_team_name_norm = str(TEAM_NAME).strip()
+df_team_players = df_all[df_all["Team"].astype(str).str.strip().eq(_team_name_norm)].copy()
+if df_team_players.empty:
+    st.info(f"No players found for Team = '{_team_name_norm}'.")
     st.stop()
 
-df_disp = df_team[(df_team[mins_col] >= pool_min) & (df_team[mins_col] <= pool_max)].copy()
+df_disp = df_team_players[(df_team_players[mins_col] >= pool_min) & (df_team_players[mins_col] <= pool_max)].copy()
 
 if "Age" in df_disp.columns:
     df_disp["Age_num"] = pd.to_numeric(df_disp["Age"], errors="coerce")
@@ -1292,7 +1385,7 @@ for i, row in df_disp.iterrows():
     avatar_url = resolve_player_photo(player, fm_map, local_overrides)
 
     badge_html = f"<img class='badge-mini' src='{badge_uri}' alt='badge' />" if badge_uri else ""
-    teamline_html = f"<div class='teamline teamline-wrap'>{badge_html}<span>{TEAM_NAME} · {league}</span></div>"
+    teamline_html = f"<div class='teamline teamline-wrap'>{badge_html}<span>{_team_name_norm} · {league}</span></div>"
 
     card_html = (
         f"<div class='pro-wrap'>"
@@ -1554,7 +1647,8 @@ else:
     if pool.empty:
         st.info("No players match the scatter filters.")
     else:
-        team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
+        _team_name_norm_sc = str(TEAM_NAME).strip()
+        team_mask = pool["Team"].astype(str).str.strip().eq(_team_name_norm_sc)
         others = pool[~team_mask].copy()
         team_players = pool[team_mask].copy()
 
@@ -1666,7 +1760,7 @@ else:
         st.download_button(
             "Export chart (PNG)",
             data=png_buf,
-            file_name=f"{TEAM_NAME}_{safe_title}_{x_metric}_vs_{y_metric}.png".replace(" ", "_"),
+            file_name=f"{str(TEAM_NAME).strip()}_{safe_title}_{x_metric}_vs_{y_metric}.png".replace(" ", "_"),
             mime="image/png",
             key="club_sc_export_png",
         )
@@ -1704,7 +1798,7 @@ teams_available = sorted(df_all["Team"].dropna().unique())
 # 1) TEAM_NAME constant
 # 2) player_row team if available
 # 3) first in list
-default_team = TEAM_NAME if "TEAM_NAME" in globals() else None
+default_team = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else None
 selected_player_name = None
 
 player_row_obj = globals().get("player_row", pd.DataFrame())
@@ -1758,7 +1852,7 @@ render_exact = True
 # --------------------------------------------------------------------------------------
 # FILTER SQUAD
 # --------------------------------------------------------------------------------------
-squad = df_all[df_all["Team"] == squad_team].copy()
+squad = df_all[df_all["Team"].astype(str).str.strip().eq(str(squad_team).strip())].copy()
 if squad.empty:
     st.info("No players found for this squad.")
     st.stop()
@@ -2032,7 +2126,7 @@ if render_exact:
     st.download_button(
         "⬇️ Download Squad Profile (PNG)",
         data=buf.getvalue(),
-        file_name=f"squad_profile_{squad_team.replace(' ','_')}_{uuid.uuid4().hex[:6]}.png",
+        file_name=f"squad_profile_{str(squad_team).replace(' ','_')}_{uuid.uuid4().hex[:6]}.png",
         mime="image/png",
     )
 else:
@@ -2095,7 +2189,7 @@ POS_KEY = pos_label_to_key[pos_pick_label]
 
 with c2:
     teams_available = sorted(df_all["Team"].dropna().astype(str).unique().tolist()) if "Team" in df_all.columns else []
-    default_team = TEAM_NAME if "TEAM_NAME" in globals() else (teams_available[0] if teams_available else "")
+    default_team = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else (teams_available[0] if teams_available else "")
     team_pick = st.selectbox(
         "Team",
         options=teams_available,
@@ -2414,7 +2508,7 @@ for flag_name, (_, _, marker) in cfg["flags"].items():
 
 # Selected team subset (for default labels)
 team_pick_norm = str(team_pick).strip()
-team_df = pool_sc[pool_sc["Team"].astype(str).str.strip() == team_pick_norm].copy()
+team_df = pool_sc[pool_sc["Team"].astype(str).str.strip().eq(team_pick_norm)].copy()
 
 # ------------------------------------------------------------------
 # PLOT STYLE (fixed, no canvas UI)
@@ -2557,6 +2651,7 @@ st.download_button(
 
 plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
+
 
 
 
