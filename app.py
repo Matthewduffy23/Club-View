@@ -869,6 +869,51 @@ header, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+
+/* ===== FIX: allow labels to shrink/wrap instead of being covered ===== */
+.m-row{
+  justify-content:flex-start !important;   /* stop space-between pushing into the edge */
+  gap:10px !important;
+}
+
+.m-label{
+  flex: 1 1 auto !important;
+  min-width: 0 !important;                /* CRITICAL: allows flex shrink */
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;      /* wrap long labels on mobile */
+}
+
+/* keep right side fixed */
+.m-right{
+  flex: 0 0 auto !important;
+}
+
+/* (Optional) if you prefer ellipsis instead of wrap, use this instead:
+.m-label{
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+*/
+
+/* ===== FIX: add a mobile "safe area" on the right (Streamlit overlays) ===== */
+@media (max-width: 600px){
+  .pro-card, .m-sec{
+    padding-right: 88px !important;  /* reserve space so overlay buttons don't cover pills */
+  }
+  .block-container{
+    padding-bottom: 140px !important; /* stop bottom content getting covered */
+  }
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
 # =========================
 # LOAD DATA
 # =========================
