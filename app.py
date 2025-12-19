@@ -2042,10 +2042,11 @@ plt.close(fig)
 # ============================== END FEATURE R ==========================================
 
 
-# ============================== FEATURE — ARCHETYPE MAP (ALL POSITIONS, NO SCIPY, df_all) ==============================
-# Uses df_all (your global dataframe in app.py)
-# Auto highlight + label ONLY your TEAM_NAME
-# Percentiles via pandas rank(pct=True) (no SciPy dependency)
+# ============================== FEATURE — ARCHETYPE MAP (MINIMAL UI, NO SCIPY, df_all) ==============================
+# UI: Position, Team, Age slider, Label-all toggle
+# Default: label ONLY selected team players; NO red highlight
+# Pool: all leagues / all strengths (no league controls)
+# Percentiles via pandas rank(pct=True)
 # ======================================================================================================================
 
 from io import BytesIO
@@ -2068,7 +2069,7 @@ except Exception:
     HAVE_ADJUSTTEXT = False
 
 # ------------------------------------------------------------------
-# SETTINGS (UI)
+# MINIMAL UI
 # ------------------------------------------------------------------
 pos_options = [
     ("Center Back", "CB"),
@@ -2081,75 +2082,48 @@ pos_options = [
 pos_label_to_key = {k: v for k, v in pos_options}
 
 default_pos_key = "CB"
-pos_pick_label = st.selectbox(
-    "Position",
-    options=[k for k, _ in pos_options],
-    index=[v for _, v in pos_options].index(default_pos_key),
-    key="arch_pos_pick",
-)
+c1, c2, c3, c4 = st.columns([1.4, 1.8, 2.2, 1.2])
+
+with c1:
+    pos_pick_label = st.selectbox(
+        "Position",
+        options=[k for k, _ in pos_options],
+        index=[v for _, v in pos_options].index(default_pos_key),
+        key="arch_pos_pick_min",
+    )
 POS_KEY = pos_label_to_key[pos_pick_label]
 
-# League preset behaviour (supports your PRESET_LEAGUES + LEAGUE_STRENGTHS if present)
-leagues_available_sc = sorted(df_all["League"].dropna().unique().tolist()) if "League" in df_all.columns else []
+with c2:
+    teams_available = sorted(df_all["Team"].dropna().astype(str).unique().tolist()) if "Team" in df_all.columns else []
+    default_team = TEAM_NAME if "TEAM_NAME" in globals() else (teams_available[0] if teams_available else "")
+    team_pick = st.selectbox(
+        "Team",
+        options=teams_available,
+        index=(teams_available.index(default_team) if default_team in teams_available else 0),
+        key="arch_team_pick_min",
+    )
 
-player_league = None
-try:
-    if "player_row" in globals() and isinstance(player_row, pd.DataFrame) and not player_row.empty:
-        player_league = player_row.iloc[0].get("League", None)
-except Exception:
-    player_league = None
+# age bounds
+if "Age" in df_all.columns and df_all["Age"].notna().any():
+    age_min_bound = int(np.nanmin(pd.to_numeric(df_all["Age"], errors="coerce")))
+    age_max_bound = int(np.nanmax(pd.to_numeric(df_all["Age"], errors="coerce")))
+    age_min_bound = max(14, age_min_bound)
+    age_max_bound = min(45, max(age_min_bound + 1, age_max_bound))
+else:
+    age_min_bound, age_max_bound = 14, 45
 
-preset_sc = st.selectbox(
-    "League preset",
-    ["Player's league", "Top 5 Europe", "Top 20 Europe", "EFL (England 2–4)", "Custom"],
-    index=0,
-    key="arch_preset",
-)
+with c3:
+    age_min_s, age_max_s = st.slider(
+        "Age",
+        min_value=age_min_bound,
+        max_value=age_max_bound,
+        value=(max(16, age_min_bound), min(40, age_max_bound)),
+        step=1,
+        key="arch_age_min",
+    )
 
-PRESET_LEAGUES_SAFE = globals().get("PRESET_LEAGUES", {})
-if not isinstance(PRESET_LEAGUES_SAFE, dict):
-    PRESET_LEAGUES_SAFE = {}
-
-preset_map_sc = {
-    "Player's league": {player_league} if player_league else set(),
-    "Top 5 Europe": set(PRESET_LEAGUES_SAFE.get("Top 5 Europe", [])),
-    "Top 20 Europe": set(PRESET_LEAGUES_SAFE.get("Top 20 Europe", [])),
-    "EFL (England 2–4)": set(PRESET_LEAGUES_SAFE.get("EFL (England 2–4)", [])),
-    "Custom": set(),
-}
-
-add_leagues_sc = st.multiselect("Add leagues", leagues_available_sc, default=[], key="arch_add_leagues")
-leagues_scatter = sorted(preset_map_sc.get(preset_sc, set()) | set(add_leagues_sc))
-if not leagues_scatter and player_league:
-    leagues_scatter = [player_league]
-if not leagues_scatter and leagues_available_sc:
-    leagues_scatter = leagues_available_sc[:]  # fallback: everything
-
-# Filters (kept consistent with your app)
-mins_col = detect_minutes_col(df_all)
-df_all[mins_col] = pd.to_numeric(df_all[mins_col], errors="coerce").fillna(0)
-if "Age" in df_all.columns:
-    df_all["Age"] = pd.to_numeric(df_all["Age"], errors="coerce")
-
-min_minutes_s, max_minutes_s = st.slider("Minutes", 0, 5000, (500, 5000), step=10, key="arch_mins")
-min_age_s, max_age_s = st.slider("Age", 14, 45, (16, 40), step=1, key="arch_age")
-min_strength_s, max_strength_s = st.slider("League Strength", 0, 101, (0, 101), key="arch_ls")
-
-# Canvas (same dark style as your features)
-PAGE_BG = "#0a0f1c"
-PLOT_BG = "#0a0f1c"
-GRID_MAJ = "#3a4050"
-txt_col = "#f1f5f9"
-
-canvas_preset = st.selectbox(
-    "Canvas size",
-    ["1280×720", "1600×900", "1920×820", "1920×1080"],
-    index=1,
-    key="arch_canvas",
-)
-w_px, h_px = map(int, canvas_preset.replace("×", "x").split("x"))
-top_gap_px = st.slider("Top gap (px)", 0, 240, 80, 5, key="arch_gap")
-render_exact = st.checkbox("Render exact pixels (PNG)", value=True, key="arch_exact")
+with c4:
+    label_all = st.toggle("Label all players", value=False, key="arch_label_all")
 
 # ------------------------------------------------------------------
 # HELPERS
@@ -2386,43 +2360,31 @@ def build_position_config(pos_key: str):
 cfg = build_position_config(POS_KEY)
 
 # ------------------------------------------------------------------
-# BUILD POOL
+# BUILD POOL (NO LEAGUE CONTROLS)
 # ------------------------------------------------------------------
 pool_sc = df_all.copy()
 
-if "League" in pool_sc.columns and leagues_scatter:
-    pool_sc = pool_sc[pool_sc["League"].isin(leagues_scatter)].copy()
+# Required columns
+if "Player" not in pool_sc.columns or "Team" not in pool_sc.columns or "Position" not in pool_sc.columns:
+    st.info("Dataset must contain 'Player', 'Team', and 'Position' columns.")
+    st.stop()
 
+# Position filter
 pool_sc["Primary Position"] = _primary_pos(pool_sc["Position"])
 pool_sc = pool_sc[POS_FILTERS[POS_KEY](pool_sc["Primary Position"])].copy()
+if pool_sc.empty:
+    st.info("No players for this position group.")
+    st.stop()
 
-# League strength filter (only if mapping exists)
-LEAGUE_STRENGTHS_SAFE = globals().get("LEAGUE_STRENGTHS", {})
-if not isinstance(LEAGUE_STRENGTHS_SAFE, dict):
-    LEAGUE_STRENGTHS_SAFE = {}
-
-if "League" in pool_sc.columns and LEAGUE_STRENGTHS_SAFE:
-    pool_sc["League Strength"] = pool_sc["League"].map(LEAGUE_STRENGTHS_SAFE).fillna(0.0)
-    pool_sc = pool_sc[pool_sc["League Strength"].between(min_strength_s, max_strength_s)].copy()
-
-# Minutes + Age
-pool_sc[mins_col] = pd.to_numeric(pool_sc[mins_col], errors="coerce").fillna(0.0)
-pool_sc = pool_sc[pool_sc[mins_col].between(min_minutes_s, max_minutes_s)].copy()
-
+# Age filter
 if "Age" in pool_sc.columns:
     pool_sc["Age"] = pd.to_numeric(pool_sc["Age"], errors="coerce")
-    pool_sc = pool_sc[pool_sc["Age"].between(min_age_s, max_age_s)].copy()
-
-# Must have player/team columns
-if "Player" not in pool_sc.columns or "Team" not in pool_sc.columns:
-    st.info("Dataset must contain 'Player' and 'Team' columns.")
-    st.stop()
-
+    pool_sc = pool_sc[pool_sc["Age"].between(age_min_s, age_max_s)].copy()
 if pool_sc.empty:
-    st.info("No players after filtering.")
+    st.info("No players after age filter.")
     st.stop()
 
-# Ensure needed metrics exist; fill missing with 0 (avoids crashes if column not present)
+# Ensure needed metrics exist; fill missing with 0
 needed = set()
 for grp in cfg["metric_groups"].values():
     needed |= set(grp.keys())
@@ -2435,7 +2397,7 @@ for m in needed:
 for score_name, weights in cfg["metric_groups"].items():
     pool_sc[score_name] = compute_weighted_score(pool_sc, weights)
 
-# Archetype
+# Archetype label
 pool_sc["Archetype"] = pool_sc.apply(cfg["classify"], axis=1)
 
 # Flags -> marker priority: diamond > square > circle
@@ -2443,22 +2405,29 @@ pool_sc["_marker"] = "o"
 for flag_name, (score_col, thr, marker) in cfg["flags"].items():
     pool_sc[flag_name] = pool_sc[score_col] >= float(thr)
 
-# Diamond first
 for flag_name, (_, _, marker) in cfg["flags"].items():
     if marker == "D":
         pool_sc.loc[pool_sc[flag_name], "_marker"] = "D"
-# Square next
 for flag_name, (_, _, marker) in cfg["flags"].items():
     if marker == "s":
         pool_sc.loc[(pool_sc[flag_name]) & (pool_sc["_marker"] == "o"), "_marker"] = "s"
 
-# Highlight TEAM_NAME only
-team_name = str(TEAM_NAME).strip() if "TEAM_NAME" in globals() else ""
-hl = pool_sc[pool_sc["Team"].astype(str).str.strip() == team_name].copy()
+# Selected team subset (for default labels)
+team_pick_norm = str(team_pick).strip()
+team_df = pool_sc[pool_sc["Team"].astype(str).str.strip() == team_pick_norm].copy()
 
 # ------------------------------------------------------------------
-# PLOT
+# PLOT STYLE (fixed, no canvas UI)
 # ------------------------------------------------------------------
+PAGE_BG = "#0a0f1c"
+PLOT_BG = "#0a0f1c"
+GRID_MAJ = "#3a4050"
+txt_col = "#f1f5f9"
+
+# fixed size similar to your other features
+w_px, h_px = 1600, 900
+top_gap_px = 80  # fixed
+
 fig, ax = plt.subplots(figsize=(w_px / 100, h_px / 100), dpi=100)
 fig.patch.set_facecolor(PAGE_BG)
 ax.set_facecolor(PLOT_BG)
@@ -2495,7 +2464,7 @@ ax.text(94, 94, tr, fontsize=quad_fs, weight="bold", ha="right", bbox=bbox_style
 ax.text(6, 6, bl, fontsize=quad_fs, weight="bold", bbox=bbox_style)
 ax.text(96, 6, br, fontsize=quad_fs, weight="bold", ha="right", bbox=bbox_style)
 
-# Points
+# Points (single style; no team highlight)
 point_size = 240
 point_alpha = 0.92
 for _, r in pool_sc.iterrows():
@@ -2513,23 +2482,11 @@ for _, r in pool_sc.iterrows():
         zorder=2,
     )
 
-# Highlight team overlay (red)
-if not hl.empty:
-    ax.scatter(
-        hl[cfg["x"]],
-        hl[cfg["y"]],
-        s=point_size * 1.15,
-        c="#C81E1E",
-        alpha=0.98,
-        edgecolors="white",
-        linewidths=1.8,
-        zorder=4,
-    )
-
-# Labels: ONLY TEAM_NAME players
+# Labels (default: ONLY team players; optional: label all)
+label_df = pool_sc if label_all else team_df
 texts = []
-if not hl.empty:
-    for _, r in hl.iterrows():
+if not label_df.empty:
+    for _, r in label_df.iterrows():
         t = ax.annotate(
             str(r["Player"]),
             (float(r[cfg["x"]]), float(r[cfg["y"]])),
@@ -2557,7 +2514,7 @@ if not hl.empty:
         except Exception:
             pass
 
-# Legend (Archetypes present in pool)
+# Legend (Archetypes present)
 arch_set = sorted(pool_sc["Archetype"].dropna().unique().tolist())
 handles = [
     Line2D([0], [0], marker="s", linestyle="None", color="none",
@@ -2587,22 +2544,20 @@ for t in leg.get_texts():
 fig.subplots_adjust(left=0.06, right=0.865, bottom=0.11, top=1.02 - top_gap_px / float(h_px))
 
 # Render + download
-if render_exact:
-    buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=100, facecolor=PAGE_BG)
-    buf.seek(0)
-    st.image(buf, width=w_px)
-    st.download_button(
-        "⬇️ Download Archetype Map (PNG)",
-        data=buf.getvalue(),
-        file_name=f"archetype_map_{POS_KEY.lower()}_{uuid.uuid4().hex[:6]}.png",
-        mime="image/png",
-    )
-else:
-    st.pyplot(fig)
+buf = BytesIO()
+fig.savefig(buf, format="png", dpi=100, facecolor=PAGE_BG)
+buf.seek(0)
+st.image(buf, width=w_px)
+st.download_button(
+    "⬇️ Download Archetype Map (PNG)",
+    data=buf.getvalue(),
+    file_name=f"archetype_map_{POS_KEY.lower()}_{uuid.uuid4().hex[:6]}.png",
+    mime="image/png",
+)
 
 plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
+
 
 
 
