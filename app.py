@@ -1448,6 +1448,420 @@ else:
             key="club_sc_export_png",
         )
 
+# ============================== FEATURE R — SQUAD PROFILE (App-ready) ==============================
+from io import BytesIO
+import uuid
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
+from matplotlib import patheffects as pe
+
+st.markdown("---")
+st.header("📊 Feature R — Squad Profile")
+
+# --------------------------------------------------------------------------------------
+# CONFIG
+# --------------------------------------------------------------------------------------
+CONTRACT_COL = "Contract expires"   # <= 2026 -> default red highlight
+
+# Optional smart label library
+try:
+    from adjustText import adjust_text
+    HAVE_ADJUSTTEXT = True
+except ImportError:
+    HAVE_ADJUSTTEXT = False
+
+# --------------------------------------------------------------------------------------
+# SETTINGS PANEL
+# --------------------------------------------------------------------------------------
+with st.expander("Squad Profile settings", expanded=False):
+
+    # --- Squad selection ---
+    # Use your app dataframe + default TEAM_NAME
+    teams_available = sorted(df_all["Team"].dropna().unique())
+
+    # Default priority:
+    # 1) TEAM_NAME (your app constant)
+    # 2) player_row team if available
+    # 3) first team in list
+    default_team = TEAM_NAME if "TEAM_NAME" in globals() else None
+    selected_player_name = None
+
+    player_row_obj = globals().get("player_row", pd.DataFrame())
+    if (default_team is None) and isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
+        default_team = player_row_obj.iloc[0].get("Team", None)
+
+    if isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
+        selected_player_name = player_row_obj.iloc[0].get("Player", None)
+
+    default_idx = teams_available.index(default_team) if default_team in teams_available else 0
+
+    squad_team = st.selectbox(
+        "Squad (team)",
+        options=teams_available,
+        index=default_idx,
+        key="sq_team",
+    )
+
+    # --- Axis filters ---
+    # Use detected minutes column from your app
+    mcol = mins_col if "mins_col" in globals() else "Minutes played"
+
+    df_all[mcol] = pd.to_numeric(df_all[mcol], errors="coerce")
+    df_all["Age"] = pd.to_numeric(df_all["Age"], errors="coerce")
+
+    # Minutes 0–5000, default 0–4000 (keep as your feature)
+    min_minutes_s, max_minutes_s = st.slider(
+        "Minutes range (for axis & filter)",
+        0, 5000,
+        (0, 4000),
+        step=250,
+        key="sq_min",
+    )
+
+    # Age 14–45, default 16–40
+    min_age_s, max_age_s = st.slider(
+        "Age range (for axis & filter)",
+        14, 45,
+        (16, 40),
+        key="sq_age",
+    )
+
+    # --- Minutes bands (horizontal lines) ---
+    st.markdown("**Minutes bands (horizontal dashed lines)**")
+    important_line = st.slider(
+        "Important Player line (minutes)",
+        0, 5000, 500, step=250, key="sq_line_important",
+    )
+    crucial_line = st.slider(
+        "Crucial Player line (minutes)",
+        0, 5000, 1000, step=250, key="sq_line_crucial",
+    )
+
+    band_lines = sorted(
+        [("Important Player", important_line),
+         ("Crucial Player", crucial_line)],
+        key=lambda x: x[1],
+    )
+
+    # --- Contract highlight & custom red players ---
+    auto_contract_red = st.checkbox(
+        "Highlight players with contract ≤ 2026 in red",
+        value=True,
+        key="sq_auto_contract",
+    )
+
+    team_players_all = sorted(
+        df_all[df_all["Team"] == squad_team]["Player"].dropna().unique().tolist()
+    )
+    custom_red_players = st.multiselect(
+        "Force-highlight specific players in red",
+        options=team_players_all,
+        default=[],
+        key="sq_custom_red",
+    )
+
+    # --- Labels & points ---
+    show_labels = st.toggle("Show labels", value=True, key="sq_show_labels")
+    label_size = st.slider("Label size", 8, 22, 15, 1, key="sq_lblsize")  # default 15
+    point_size = st.slider("Point size", 24, 300, 300, 2, key="sq_pts")   # default 300
+    point_alpha = st.slider("Point opacity", 0.2, 1.0, 0.92, 0.02, key="sq_alpha")
+
+    # --- Theme & canvas (same style as your app) ---
+    PAGE_BG = "#0a0f1c"
+    PLOT_BG = "#0a0f1c"
+    GRID_MAJ = "#3a4050"
+    txt_col = "#f1f5f9"
+
+    canvas_preset = st.selectbox(
+        "Canvas size",
+        ["1280×720", "1600×900", "1920×820", "1920×1080"],
+        index=1,
+        key="sq_canvas",
+    )
+    w_px, h_px = map(int, canvas_preset.replace("×", "x").split("x"))
+
+    top_gap_px = st.slider("Top gap (px)", 0, 240, 80, 5, key="sq_gap")
+    render_exact = st.checkbox("Render exact pixels (PNG)", value=True, key="sq_exact")
+
+# --------------------------------------------------------------------------------------
+# FILTER SQUAD
+# --------------------------------------------------------------------------------------
+squad = df_all[df_all["Team"] == squad_team].copy()
+if squad.empty:
+    st.info("No players found for this squad.")
+    st.stop()
+
+squad[mcol] = pd.to_numeric(squad[mcol], errors="coerce")
+squad["Age"] = pd.to_numeric(squad["Age"], errors="coerce")
+
+squad = squad[
+    squad[mcol].between(min_minutes_s, max_minutes_s)
+    & squad["Age"].between(min_age_s, max_age_s)
+]
+
+if squad.empty:
+    st.info("No players after applying filters.")
+    st.stop()
+
+# --------------------------------------------------------------------------------------
+# CONTRACT HIGHLIGHT & CUSTOM HIGHLIGHT
+# --------------------------------------------------------------------------------------
+if auto_contract_red and CONTRACT_COL in squad.columns:
+    contract_year = (
+        squad[CONTRACT_COL]
+        .astype(str)
+        .str.extract(r"(\d{4})")[0]
+        .astype(float)
+    )
+    squad["ContractYear"] = contract_year
+    squad["AutoRed"] = squad["ContractYear"].le(2026)
+else:
+    squad["ContractYear"] = np.nan
+    squad["AutoRed"] = False
+
+squad["Selected"] = False
+if selected_player_name:
+    squad["Selected"] = squad["Player"] == selected_player_name
+
+squad["CustomRed"] = squad["Player"].isin(custom_red_players)
+squad["IsRed"] = squad["AutoRed"] | squad["Selected"] | squad["CustomRed"]
+
+# --------------------------------------------------------------------------------------
+# SCATTER BASE
+# --------------------------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(w_px / 100, h_px / 100), dpi=100)
+fig.patch.set_facecolor(PAGE_BG)
+ax.set_facecolor(PLOT_BG)
+
+ax.set_xlim(min_age_s, max_age_s)
+ax.set_ylim(min_minutes_s, max_minutes_s)
+
+ax.set_xlabel("Age", fontsize=16, fontweight="semibold", color=txt_col)
+ax.xaxis.labelpad = 14
+ax.set_ylabel("Minutes Played", fontsize=16, fontweight="semibold", color=txt_col)
+
+ax.xaxis.set_major_locator(MultipleLocator(1))
+ax.yaxis.set_major_locator(MultipleLocator(250))
+
+for tick in ax.get_xticklabels() + ax.get_yticklabels():
+    tick.set_fontweight("semibold")
+    tick.set_color(txt_col)
+    tick.set_fontsize(14)
+
+ax.grid(True, color=GRID_MAJ, linewidth=0.6)
+for s in ax.spines.values():
+    s.set_color("#e5e7eb")
+    s.set_linewidth(1.1)
+
+# --------------------------------------------------------------------------------------
+# AGE BANDS (flexible titles, ASCENT 21–24)
+# --------------------------------------------------------------------------------------
+line_col = "#FFFFFF"
+
+AGE_BAND_LABELS = ["YOUTH", "ASCENT", "PRIME", "EXPERIENCED", "OLD"]
+AGE_BAND_EDGES = [16, 21, 25, 29, 33, 45]
+
+for al in [21, 25, 29, 33]:
+    if min_age_s <= al <= max_age_s:
+        ax.axvline(al, color=line_col, linestyle=(0, (4, 4)), lw=1.5)
+
+for i, label in enumerate(AGE_BAND_LABELS):
+    band_start = AGE_BAND_EDGES[i]
+    band_end = AGE_BAND_EDGES[i + 1]
+
+    visible_start = max(band_start, min_age_s)
+    visible_end = min(band_end, max_age_s)
+
+    if visible_start >= visible_end or max_age_s == min_age_s:
+        continue
+
+    center = (visible_start + visible_end) / 2.0
+    x_frac = (center - min_age_s) / float(max_age_s - min_age_s)
+
+    ax.text(
+        x_frac, 1.01, label,
+        transform=ax.transAxes,
+        fontsize=20, fontweight="bold",
+        color=txt_col, ha="center", va="bottom",
+    )
+
+# --------------------------------------------------------------------------------------
+# MINUTES BANDS
+# --------------------------------------------------------------------------------------
+for name, y_val in band_lines:
+    if min_minutes_s <= y_val <= max_minutes_s:
+        ax.axhline(y_val, color=line_col, linestyle=(0, (4, 4)), lw=1.5)
+        ax.text(
+            min_age_s + 0.2,
+            y_val + (max_minutes_s - min_minutes_s) * 0.01,
+            name,
+            fontsize=14,
+            fontweight="bold",
+            color="#020617",
+            bbox=dict(
+                boxstyle="round,pad=0.35",
+                facecolor="#e5e7eb",
+                edgecolor="none",
+                alpha=0.95,
+            ),
+            va="bottom",
+        )
+
+# --------------------------------------------------------------------------------------
+# POINTS
+# --------------------------------------------------------------------------------------
+effective_point_size = point_size * 1.1
+for is_red, grp in squad.groupby("IsRed"):
+    ax.scatter(
+        grp["Age"],
+        grp[mcol],
+        s=effective_point_size,
+        c="#ef4444" if is_red else "#e5e7eb",
+        alpha=point_alpha,
+        edgecolors="none",
+        linewidth=0,
+        zorder=3 if is_red else 2,
+    )
+
+# --------------------------------------------------------------------------------------
+# LABELS – ALL PLAYERS
+# --------------------------------------------------------------------------------------
+if show_labels:
+    label_df = squad.copy()
+
+    axis_height = max_minutes_s - min_minutes_s
+    top_margin = axis_height * 0.04
+    bottom_margin = axis_height * 0.03
+
+    if HAVE_ADJUSTTEXT:
+        texts = []
+        xs = label_df["Age"].values
+        ys = label_df[mcol].values
+
+        for x, y, name, is_red in zip(xs, ys, label_df["Player"], label_df["IsRed"]):
+            t = ax.text(
+                x, y, name,
+                fontsize=label_size,
+                color=txt_col,
+                weight="semibold",
+                ha="center",
+                va="bottom",
+                zorder=6 if is_red else 5,
+            )
+            t.set_path_effects([pe.withStroke(linewidth=2, foreground="#020617", alpha=0.9)])
+            texts.append(t)
+
+        adjust_text(
+            texts,
+            x=xs, y=ys, ax=ax,
+            autoalign="y",
+            only_move={"points": "y", "text": "xy"},
+            force_points=0.7,
+            force_text=0.7,
+            expand_points=(1.1, 1.5),
+            expand_text=(1.1, 1.5),
+            arrowprops=dict(arrowstyle="-", lw=0.6, color=txt_col, alpha=0.6),
+        )
+
+        for t in texts:
+            x_lab, y_lab = t.get_position()
+            y_lab = max(min_minutes_s + bottom_margin, min(y_lab, max_minutes_s - top_margin))
+            t.set_position((x_lab, y_lab))
+
+    else:
+        base_offset = axis_height * 0.015
+        min_y_delta = axis_height * 0.05
+        age_tol = 0.7
+        x_jitter = 0.25
+
+        label_df_sorted = label_df.sort_values(mcol)
+        placed = []
+        positions = {}
+
+        for _, r in label_df_sorted.iterrows():
+            x = float(r["Age"])
+            y = float(r[mcol])
+
+            x_lab = x
+            y_lab = y + base_offset
+            y_lab = max(min_minutes_s + bottom_margin, min(y_lab, max_minutes_s - top_margin))
+
+            direction_y = 1
+            direction_x = 1
+            attempts = 0
+            max_attempts = 80
+
+            while attempts < max_attempts:
+                collision = False
+                for (px, py) in placed:
+                    if abs(x_lab - px) < age_tol and abs(y_lab - py) < min_y_delta:
+                        collision = True
+                        break
+                if not collision:
+                    break
+
+                y_lab += direction_y * min_y_delta
+                x_lab += direction_x * x_jitter
+                direction_y *= -1
+                direction_x *= -1
+
+                y_lab = max(min_minutes_s + bottom_margin, min(y_lab, max_minutes_s - top_margin))
+                x_lab = max(min_age_s + 0.2, min(x_lab, max_age_s - 0.2))
+                attempts += 1
+
+            placed.append((x_lab, y_lab))
+            positions[r["Player"]] = (x_lab, y_lab)
+
+        for _, r in label_df.iterrows():
+            x = float(r["Age"])
+            y = float(r[mcol])
+            x_lab, y_lab = positions.get(r["Player"], (x, y + base_offset))
+
+            if abs(x_lab - x) > 0.05 or abs(y_lab - (y + base_offset)) > 0.05:
+                ax.plot([x, x_lab], [y, y_lab], linestyle="-", linewidth=0.5, color=txt_col, alpha=0.5, zorder=5)
+
+            z = 6 if r["IsRed"] else 5
+            t = ax.annotate(
+                r["Player"],
+                xy=(x_lab, y_lab),
+                textcoords="data",
+                fontsize=label_size,
+                color=txt_col,
+                weight="semibold",
+                ha="center",
+                va="bottom",
+                zorder=z,
+            )
+            t.set_path_effects([pe.withStroke(linewidth=2, foreground="#020617", alpha=0.9)])
+
+# --------------------------------------------------------------------------------------
+# LAYOUT & RENDER
+# --------------------------------------------------------------------------------------
+fig.subplots_adjust(
+    left=0.06,
+    right=0.98,
+    bottom=0.11,
+    top=1.02 - top_gap_px / float(h_px),
+)
+
+if render_exact:
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=100, facecolor=PAGE_BG)
+    buf.seek(0)
+    st.image(buf, width=w_px)
+    st.download_button(
+        "⬇️ Download Squad Profile (PNG)",
+        data=buf.getvalue(),
+        file_name=f"squad_profile_{squad_team.replace(' ','_')}_{uuid.uuid4().hex[:6]}.png",
+        mime="image/png",
+    )
+else:
+    st.pyplot(fig)
+
+plt.close(fig)
+# ============================== END FEATURE R ==========================================
 
 
 
