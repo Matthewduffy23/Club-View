@@ -786,51 +786,40 @@ header, footer { visibility:hidden; }
 .teamline-wrap{ display:flex; align-items:center; gap:8px; }
 .badge-mini{ width:18px; height:18px; border-radius:4px; display:inline-block; object-fit:contain; }
 
-/* ----- OPTIONAL: hide "League" label anywhere it appears in headers/cards ----- */
-/* If your "League" label is a specific class, replace these selectors with your real one */
+/* Hide "League" label */
 .league-label, .league, .leaguechip, .league-text { display:none !important; }
 
 .m-sec{ background:#121621; border:1px solid #242b3b; border-radius:16px; padding:10px 12px; }
 .m-title{ color:#e8ecff; font-weight:800; letter-spacing:.02em; margin:4px 0 10px 0; }
 
-/* ===== ORIGINAL (kept) ===== */
-/* .m-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 8px; border-radius:10px; } */
-/* .m-label{ color:#c9d3f2; font-size:15.5px; letter-spacing:.1px; flex:1 1 auto; } */
-
-/* ===== FIX: allow labels to shrink/wrap and avoid right-side overlay ===== */
+/* ===== METRICS ROWS ===== */
 .m-row{
   display:flex;
-  justify-content:flex-start !important;   /* avoid pushing content into right edge */
+  justify-content:flex-start;        /* label gets maximum width */
   align-items:center;
-  gap:10px !important;
+  gap:10px;
   padding:8px 8px;
   border-radius:10px;
 }
+
+/* ===== ROLE/METRIC LABELS: FORCE SINGLE LINE ===== */
 .m-label{
   color:#c9d3f2;
   font-size:15.5px;
   letter-spacing:.1px;
-  flex:1 1 auto !important;
-  min-width:0 !important;                 /* CRITICAL: allows shrink in flex */
-  white-space:normal !important;
-  overflow-wrap:anywhere !important;
+  flex:1 1 auto;
+  min-width:0;                        /* required for flex text sizing */
+  white-space:nowrap;                 /* SINGLE LINE */
+  overflow:hidden;                    /* prevent spill */
+  text-overflow:ellipsis;             /* optional: ... if too long */
 }
+
 .m-right{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
 .m-val{ color:#a8b3cf; font-size:13px; opacity:.9; min-width:54px; text-align:right; }
 .m-badge{ min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:800; font-size:18px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); }
 
 .metrics-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
 @media (min-width: 820px){ .metrics-grid{ grid-template-columns:repeat(3,1fr);} }
-
-/* ===== Mobile safe area (Streamlit floating overlays can cover right side) ===== */
-@media (max-width: 600px){
-  .pro-card, .m-sec{
-    padding-right: 88px !important;  /* reserve right gutter */
-  }
-  .block-container{
-    padding-bottom: 140px !important;
-  }
-}
 
 .header-shell{
   background:#1c1c1d;border:1px solid #2a2a2b;border-radius:18px;padding:16px;
@@ -902,26 +891,9 @@ header, footer { visibility:hidden; }
   visibility: visible;
   opacity: 1;
 }
-st.markdown("""
-<style>
-
-/* Keep role / metric labels on ONE line */
-.m-label{
-  white-space: nowrap;
-}
-
-/* Allow label column to actually use full width */
-.m-row{
-  justify-content: flex-start;
-}
-
-/* Optional: give labels maximum space */
-.m-right{
-  margin-left: 12px;
-}
-
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
