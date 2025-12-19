@@ -756,7 +756,7 @@ header, footer { visibility:hidden; }
 
 .pro-wrap{ display:flex; justify-content:center; }
 .pro-card{
-  position:relative; width:min(720px,98%); display:grid; grid-template-columns:96px 1fr 64px;
+  position:relative; width:min(720px,98%); display:grid; grid-template-columns:96px minmax(0,1fr) auto;
   gap:12px; align-items:start;
   background:#141823; border:1px solid rgba(255,255,255,.06); border-radius:20px;
   padding:16px; margin-bottom:12px;
