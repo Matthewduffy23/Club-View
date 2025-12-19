@@ -965,23 +965,45 @@ else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
 
 # =========================
-# TEAM NOTES (MANUAL – EDIT HERE ONLY)
+# TEAM NOTES (MANUAL – TWO TEAMS ONLY)
+# Edit text here ONLY
 # =========================
-TEAM_STYLE = [
-    "Possession",
-    "Pressing",
-    "Structured",
-]
-TEAM_STRENGTHS = [
-    "Chance Prevention",
-    "Game Control",
-    "Pressing Intensity",
-]
-TEAM_WEAKNESSES = [
-    "Finishing",
-    "Final 3rd Entries",
-    "Set Pieces",
-]
+
+TEAM_NOTES = {
+    "chengdu rongcheng": {
+        "style": [
+            "Possession",
+            "Pressing",
+            "Structured",
+        ],
+        "strengths": [
+            "Chance Prevention",
+            "Game Control",
+            "Pressing Intensity",
+        ],
+        "weaknesses": [
+            "Finishing",
+            "Final 3rd Entries",
+            "Set Pieces",
+        ],
+    },
+
+    "shanghai port": {
+        "style": [
+            "High Tempo",
+            "Vertical Attacks",
+        ],
+        "strengths": [
+            "Chance Creation",
+            "Wide Threat",
+            "Transition Speed",
+        ],
+        "weaknesses": [
+            "Defensive Transitions",
+            "Set Pieces",
+        ],
+    },
+}
 
 def _chip_row(items, bg):
     if not items:
@@ -995,29 +1017,31 @@ def _chip_row(items, bg):
         f"font-size:14px;"
         f"margin:0 8px 10px 0;"
         f"display:inline-block;'>"
-        f"{t}</span>"
+        f"{st.utils.escape_html(str(t))}</span>"
         for t in items
     )
 
-team_notes_html = f"""
-<div style="margin-top:18px;margin-bottom:38px;">
-  <div style="margin-bottom:20px;">
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Style:</div>
-    {_chip_row(TEAM_STYLE, "#bfdbfe")}
-  </div>
+# Resolve notes for current team
+team_key = _norm_one(TEAM_NAME)
+notes = TEAM_NOTES.get(team_key)
 
-  <div style="margin-bottom:20px;">
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Strengths:</div>
-    {_chip_row(TEAM_STRENGTHS, "#a7f3d0")}
-  </div>
+# Render ONLY if team is defined
+if notes:
+    team_notes_html = f"""
+    <div style="margin-top:14px;margin-bottom:26px;">
+      <div style="margin-bottom:14px;">
+        {_chip_row(notes.get("style", []), "#bfdbfe")}
+      </div>
+      <div style="margin-bottom:14px;">
+        {_chip_row(notes.get("strengths", []), "#a7f3d0")}
+      </div>
+      <div>
+        {_chip_row(notes.get("weaknesses", []), "#fecaca")}
+      </div>
+    </div>
+    """
+    st.markdown(team_notes_html, unsafe_allow_html=True)
 
-  <div style="margin-bottom:6px;">
-    <div style="color:#c9d3f2;font-weight:700;margin-bottom:8px;">Weaknesses:</div>
-    {_chip_row(TEAM_WEAKNESSES, "#fecaca")}
-  </div>
-</div>
-"""
-st.markdown(team_notes_html, unsafe_allow_html=True)
 
 # =========================
 # FEATURE — TEAM PERFORMANCE
