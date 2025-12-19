@@ -1448,7 +1448,7 @@ else:
             key="club_sc_export_png",
         )
 
-# ============================== FEATURE R — SQUAD PROFILE (App-ready) ==============================
+# ============================== FEATURE R — SQUAD PROFILE (Minimal UI) ==============================
 from io import BytesIO
 import uuid
 import numpy as np
@@ -1473,124 +1473,64 @@ except ImportError:
     HAVE_ADJUSTTEXT = False
 
 # --------------------------------------------------------------------------------------
-# SETTINGS PANEL (kept as-is style, just updated defaults + toggles)
+# MINIMAL CONTROLS (ONLY: team select + 2 toggles)
 # --------------------------------------------------------------------------------------
-with st.expander("Squad Profile settings", expanded=False):
+teams_available = sorted(df_all["Team"].dropna().unique())
 
-    # --- Squad selection ---
-    teams_available = sorted(df_all["Team"].dropna().unique())
+# Default team priority:
+# 1) TEAM_NAME constant
+# 2) player_row team if available
+# 3) first in list
+default_team = TEAM_NAME if "TEAM_NAME" in globals() else None
+selected_player_name = None
 
-    # Default priority:
-    # 1) TEAM_NAME (your app constant)
-    # 2) player_row team if available
-    # 3) first team in list
-    default_team = TEAM_NAME if "TEAM_NAME" in globals() else None
-    selected_player_name = None
+player_row_obj = globals().get("player_row", pd.DataFrame())
+if (default_team is None) and isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
+    default_team = player_row_obj.iloc[0].get("Team", None)
 
-    player_row_obj = globals().get("player_row", pd.DataFrame())
-    if (default_team is None) and isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
-        default_team = player_row_obj.iloc[0].get("Team", None)
+if isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
+    selected_player_name = player_row_obj.iloc[0].get("Player", None)
 
-    if isinstance(player_row_obj, pd.DataFrame) and not player_row_obj.empty:
-        selected_player_name = player_row_obj.iloc[0].get("Player", None)
+default_idx = teams_available.index(default_team) if default_team in teams_available else 0
 
-    default_idx = teams_available.index(default_team) if default_team in teams_available else 0
+cA, cB, cC = st.columns([2.2, 1.2, 1.2])
+with cA:
+    squad_team = st.selectbox("Squad (team)", options=teams_available, index=default_idx, key="sq_team_min")
+with cB:
+    auto_contract_red = st.checkbox("Contract ≤ 2026", value=False, key="sq_contract_toggle")  # NOT default
+with cC:
+    visa_highlight = st.checkbox("Visa players", value=False, key="sq_visa_toggle")            # NOT default
 
-    squad_team = st.selectbox(
-        "Squad (team)",
-        options=teams_available,
-        index=default_idx,
-        key="sq_team",
-    )
+# --------------------------------------------------------------------------------------
+# FIXED DEFAULTS (NO UI)
+# --------------------------------------------------------------------------------------
+mcol = mins_col if "mins_col" in globals() else "Minutes played"
 
-    # --- Axis filters ---
-    mcol = mins_col if "mins_col" in globals() else "Minutes played"
+# fixed filters (as requested)
+min_minutes_s, max_minutes_s = 0, 3500
+min_age_s, max_age_s = 16, 40
 
-    df_all[mcol] = pd.to_numeric(df_all[mcol], errors="coerce")
-    df_all["Age"] = pd.to_numeric(df_all["Age"], errors="coerce")
+# fixed minutes bands
+band_lines = sorted(
+    [("Important Player", 1000),
+     ("Crucial Player", 1750)],
+    key=lambda x: x[1],
+)
 
-    # Minutes 0–5000, ✅ default 0–3500
-    min_minutes_s, max_minutes_s = st.slider(
-        "Minutes range (for axis & filter)",
-        0, 5000,
-        (0, 3500),
-        step=250,
-        key="sq_min",
-    )
+# fixed visual defaults
+show_labels = True
+label_size = 15
+point_size = 300
+point_alpha = 0.92
 
-    # Age 14–45, default 16–40
-    min_age_s, max_age_s = st.slider(
-        "Age range (for axis & filter)",
-        14, 45,
-        (16, 40),
-        key="sq_age",
-    )
-
-    # --- Minutes bands (horizontal lines) ---
-    st.markdown("**Minutes bands (horizontal dashed lines)**")
-
-    # ✅ defaults: Important=1000, Crucial=1750
-    important_line = st.slider(
-        "Important Player line (minutes)",
-        0, 5000, 1000, step=250, key="sq_line_important",
-    )
-    crucial_line = st.slider(
-        "Crucial Player line (minutes)",
-        0, 5000, 1750, step=250, key="sq_line_crucial",
-    )
-
-    band_lines = sorted(
-        [("Important Player", important_line),
-         ("Crucial Player", crucial_line)],
-        key=lambda x: x[1],
-    )
-
-    # --- Optional highlights (NOT default) ---
-    auto_contract_red = st.checkbox(
-        "Highlight players with contract ≤ 2026 in red",
-        value=False,   # ✅ NOT default
-        key="sq_auto_contract",
-    )
-
-    visa_highlight = st.checkbox(
-        "Highlight visa players (exclude China PR) in red",
-        value=False,   # ✅ NOT default
-        key="sq_visa_highlight",
-    )
-
-    # --- custom red players (keep) ---
-    team_players_all = sorted(
-        df_all[df_all["Team"] == squad_team]["Player"].dropna().unique().tolist()
-    )
-    custom_red_players = st.multiselect(
-        "Force-highlight specific players in red",
-        options=team_players_all,
-        default=[],
-        key="sq_custom_red",
-    )
-
-    # --- Labels & points ---
-    show_labels = st.toggle("Show labels", value=True, key="sq_show_labels")
-    label_size = st.slider("Label size", 8, 22, 15, 1, key="sq_lblsize")
-    point_size = st.slider("Point size", 24, 300, 300, 2, key="sq_pts")
-    point_alpha = st.slider("Point opacity", 0.2, 1.0, 0.92, 0.02, key="sq_alpha")
-
-    # --- Theme & canvas ---
-    PAGE_BG = "#0a0f1c"
-    PLOT_BG = "#0a0f1c"
-    GRID_MAJ = "#3a4050"
-    txt_col = "#f1f5f9"
-
-    canvas_preset = st.selectbox(
-        "Canvas size",
-        ["1280×720", "1600×900", "1920×820", "1920×1080"],
-        index=1,
-        key="sq_canvas",
-    )
-    w_px, h_px = map(int, canvas_preset.replace("×", "x").split("x"))
-
-    top_gap_px = st.slider("Top gap (px)", 0, 240, 80, 5, key="sq_gap")
-    render_exact = st.checkbox("Render exact pixels (PNG)", value=True, key="sq_exact")
+# theme/canvas defaults
+PAGE_BG = "#0a0f1c"
+PLOT_BG = "#0a0f1c"
+GRID_MAJ = "#3a4050"
+txt_col = "#f1f5f9"
+w_px, h_px = 1600, 900
+top_gap_px = 80
+render_exact = True
 
 # --------------------------------------------------------------------------------------
 # FILTER SQUAD
@@ -1613,7 +1553,7 @@ if squad.empty:
     st.stop()
 
 # --------------------------------------------------------------------------------------
-# HIGHLIGHTS: Contract ≤ 2026 (optional) + Visa players (optional) + Selected + Custom
+# HIGHLIGHTS: Contract ≤ 2026 (optional) + Visa players (optional) + Selected (if available)
 # --------------------------------------------------------------------------------------
 # Contract highlight (optional)
 if auto_contract_red and CONTRACT_COL in squad.columns:
@@ -1629,23 +1569,19 @@ else:
     squad["ContractYear"] = np.nan
     squad["AutoRed"] = False
 
-# Visa highlight (optional): Birth country == "China PR" excluded; visa players = NOT China PR
+# Visa highlight (optional): Birth country != "China PR"
 if visa_highlight and ("Birth country" in squad.columns):
     bc_norm = _norm_series(squad["Birth country"])
     squad["VisaRed"] = bc_norm.ne("china pr")
 else:
     squad["VisaRed"] = False
 
-# Selected player (optional if you have player_row)
+# Selected player (optional if your app has player_row defined)
 squad["Selected"] = False
 if selected_player_name:
     squad["Selected"] = squad["Player"] == selected_player_name
 
-# Custom reds
-squad["CustomRed"] = squad["Player"].isin(custom_red_players)
-
-# Final red mask
-squad["IsRed"] = squad["AutoRed"] | squad["VisaRed"] | squad["Selected"] | squad["CustomRed"]
+squad["IsRed"] = squad["AutoRed"] | squad["VisaRed"] | squad["Selected"]
 
 # --------------------------------------------------------------------------------------
 # SCATTER BASE
@@ -1675,10 +1611,9 @@ for s in ax.spines.values():
     s.set_linewidth(1.1)
 
 # --------------------------------------------------------------------------------------
-# AGE BANDS (flexible titles, ASCENT 21–24)
+# AGE BANDS (fixed conceptual bands: 16–20, 21–24, 25–28, 29–32, 33–45)
 # --------------------------------------------------------------------------------------
 line_col = "#FFFFFF"
-
 AGE_BAND_LABELS = ["YOUTH", "ASCENT", "PRIME", "EXPERIENCED", "OLD"]
 AGE_BAND_EDGES = [16, 21, 25, 29, 33, 45]
 
@@ -1870,6 +1805,7 @@ if render_exact:
     fig.savefig(buf, format="png", dpi=100, facecolor=PAGE_BG)
     buf.seek(0)
     st.image(buf, width=w_px)
+
     st.download_button(
         "⬇️ Download Squad Profile (PNG)",
         data=buf.getvalue(),
@@ -1881,6 +1817,7 @@ else:
 
 plt.close(fig)
 # ============================== END FEATURE R ==========================================
+
 
 
 
