@@ -993,6 +993,95 @@ if notes:
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
 
+# =========================
+# TEAM NOTES (MANUAL – TWO TEAMS ONLY)
+# Edit text HERE ONLY
+# =========================
+import html  # safe even if already imported
+
+TEAM_NOTES = {
+    "chengdu rongcheng": {
+        "style": [
+            "Possession",
+            "Pressing",
+            "Structured",
+        ],
+        "strengths": [
+            "Chance Prevention",
+            "Game Control",
+            "Pressing Intensity",
+        ],
+        "weaknesses": [
+            "Finishing",
+            "Final 3rd Entries",
+            "Set Pieces",
+        ],
+    },
+
+    "beijing guoan": {
+        "style": [
+            "High Tempo",
+            "Vertical Attacks",
+        ],
+        "strengths": [
+            "Chance Creation",
+            "Wide Threat",
+            "Transition Speed",
+        ],
+        "weaknesses": [
+            "Defensive Transitions",
+            "Set Pieces",
+        ],
+    },
+}
+
+def _chip_row(items, bg):
+    if not items:
+        return ""
+    return "".join(
+        f"<span style='background:{bg};"
+        f"color:#0b0d12;"
+        f"padding:6px 14px;"
+        f"border-radius:999px;"
+        f"font-weight:600;"
+        f"font-size:14px;"
+        f"margin:0 8px 10px 0;"
+        f"display:inline-block;'>"
+        f"{html.escape(str(t))}</span>"
+        for t in items
+    )
+
+# ---- SAFE lookup (no NameError possible) ----
+notes = TEAM_NOTES.get(str(TEAM_NAME).strip().lower())
+
+if notes:
+    team_notes_html = f"""
+    <div style="margin-top:14px;margin-bottom:26px;">
+
+      <div style="margin-bottom:14px;">
+        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+          Style
+        </div>
+        {_chip_row(notes.get("style", []), "#bfdbfe")}
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+          Strengths
+        </div>
+        {_chip_row(notes.get("strengths", []), "#a7f3d0")}
+      </div>
+
+      <div>
+        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+          Weaknesses
+        </div>
+        {_chip_row(notes.get("weaknesses", []), "#fecaca")}
+      </div>
+
+    </div>
+    """
+    st.markdown(team_notes_html, unsafe_allow_html=True)
 
 
 
