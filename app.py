@@ -937,22 +937,32 @@ header, footer { visibility:hidden; }
 
 .section-title{
   font-size:40px;font-weight:900;letter-spacing:1px;
-  margin-top:26px;margin-bottom:12px;color:#f2f2f2;
+  margin-top:26px;margin-bottom:8px;color:#f2f2f2;
 }
 @media (max-width: 600px){
   .section-title{ font-size:34px; }
 }
 
+.helper-subtitle{
+  margin: 0 0 14px 0;
+  color: rgba(232,236,255,.72);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+/* --- Cards --- */
 .pro-wrap{ display:flex; justify-content:center; }
 .pro-card{
-  position:relative; width:min(720px,98%); display:grid; grid-template-columns:96px minmax(0,1fr) auto;
+  position:relative; width:min(720px,98%);
+  display:grid; grid-template-columns:96px minmax(0,1fr) auto;
   gap:12px; align-items:start;
   background:#141823; border:1px solid rgba(255,255,255,.06); border-radius:20px;
   padding:16px; margin-bottom:12px;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 6px 24px rgba(0,0,0,.35);
 }
 @media (max-width: 600px){
-  .pro-card{ grid-template-columns:84px 1fr 52px; padding:14px; }
+  .pro-card{ grid-template-columns:84px minmax(0,1fr) auto; padding:14px; }
 }
 
 .pro-avatar{ width:96px; height:96px; border-radius:12px; border:1px solid #2a3145; overflow:hidden; background:#0b0d12; }
@@ -978,54 +988,56 @@ header, footer { visibility:hidden; }
 /* Hide "League" label */
 .league-label, .league, .leaguechip, .league-text { display:none !important; }
 
+/* --- Metrics panel --- */
 .m-sec{ background:#121621; border:1px solid #242b3b; border-radius:16px; padding:10px 12px; }
 .m-title{ color:#e8ecff; font-weight:800; letter-spacing:.02em; margin:4px 0 10px 0; }
 
-/* ===== METRICS ROWS ===== */
+/* ===== FIXED ROW LAYOUT (ROLE LABELS 1 LINE + MAX SPACE) ===== */
 .m-row{
   display:flex;
-  justify-content:flex-start;        /* label gets maximum width */
   align-items:center;
   gap:10px;
   padding:8px 8px;
   border-radius:10px;
 }
 
-/* ===== ROLE/METRIC LABELS: FORCE SINGLE LINE ===== */
+/* Label takes ALL remaining width, stays on ONE line */
 .m-label{
   color:#c9d3f2;
   font-size:15.5px;
   letter-spacing:.1px;
-  flex:1 1 auto;
-  min-width:0;                        /* required for flex text sizing */
-  white-space:nowrap;                 /* SINGLE LINE */
-  overflow:hidden;                    /* prevent spill */
-  text-overflow:ellipsis;             /* optional: ... if too long */
+
+  flex: 1 1 0%;
+  min-width: 0;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.m-right{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+/* Right side stays compact and never forces label to wrap under pills */
+.m-right{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex: 0 0 auto;
+}
+
 .m-val{ color:#a8b3cf; font-size:13px; opacity:.9; min-width:54px; text-align:right; }
 .m-badge{ min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:800; font-size:18px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); }
 
 .metrics-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
 @media (min-width: 820px){ .metrics-grid{ grid-template-columns:repeat(3,1fr);} }
 
-.header-shell{
-  background:#1c1c1d;border:1px solid #2a2a2b;border-radius:18px;padding:16px;
-}
-.header-grid{
-  display:grid; grid-template-columns:140px 1fr; gap:14px; align-items:center;
-}
-@media (max-width: 600px){
-  .header-grid{ grid-template-columns:110px 1fr; }
-}
+/* Header bits (unchanged) */
+.header-shell{ background:#1c1c1d;border:1px solid #2a2a2b;border-radius:18px;padding:16px; }
+.header-grid{ display:grid; grid-template-columns:140px 1fr; gap:14px; align-items:center; }
+@media (max-width: 600px){ .header-grid{ grid-template-columns:110px 1fr; } }
 .crest-box{
   width:140px; height:120px; background:#121213; border:1px solid #2a2a2b; border-radius:16px;
   display:flex; align-items:center; justify-content:center; overflow:hidden;
 }
-@media (max-width: 600px){
-  .crest-box{ width:110px; height:96px; }
-}
+@media (max-width: 600px){ .crest-box{ width:110px; height:96px; } }
 .crest-box img{ width:92%; height:92%; object-fit:contain; }
 
 .header-title{ font-size:40px; font-weight:900; line-height:1.05; margin:0; }
@@ -1049,39 +1061,28 @@ header, footer { visibility:hidden; }
 
 .header-info{ margin-top:10px; display:flex; flex-direction:column; gap:4px; font-size:14px; color:#b0b0b3; }
 
-.tip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
+.tip { position: relative; display: inline-flex; align-items: center; }
 .tip .tiptext{
-  visibility: hidden;
-  opacity: 0;
-  transition: opacity .15s ease;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  top: 46px;
-  z-index: 50;
-  width: 240px;
-  background: rgba(10,15,28,.98);
-  color: #e8ecff;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.10);
+  visibility: hidden; opacity: 0; transition: opacity .15s ease;
+  position: absolute; left: 50%; transform: translateX(-50%); top: 46px;
+  z-index: 50; width: 240px;
+  background: rgba(10,15,28,.98); color: #e8ecff; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,.10);
   box-shadow: 0 10px 30px rgba(0,0,0,.45);
-  font-size: 13px;
-  line-height: 1.25;
-  font-weight: 700;
-  pointer-events: none;
-  text-align: left;
+  font-size: 13px; line-height: 1.25; font-weight: 700;
+  pointer-events: none; text-align: left;
 }
-.tip:hover .tiptext{
-  visibility: visible;
-  opacity: 1;
-}
+.tip:hover .tiptext{ visibility: visible; opacity: 1; }
 </style>
 """, unsafe_allow_html=True)
+
+# -------------------------
+# Helper blurb under PLAYERS (edit this text)
+# Put this right after your PLAYERS title render
+# -------------------------
+def players_helper(text: str = "Role scores are percentiles (0–99) vs your filtered pool. Tap a player to open Individual Metrics."):
+    st.markdown(f"<div class='helper-subtitle'>{text}</div>", unsafe_allow_html=True)
+
 
 
 
