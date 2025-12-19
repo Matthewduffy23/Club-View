@@ -1144,13 +1144,14 @@ for i, row in df_disp.iterrows():
 # =========================
 # SCATTERPLOT (Club View)
 # - filters: position group + minutes
-# - axis: choose metrics
-# - TEAM_NAME players highlighted in red
+# - axis: choose metrics (ALL columns that can be coerced to numeric)
+# - TEAM_NAME players highlighted in red (NO default labels)
+# - toggle to label every player in the chart
 # =========================
 import matplotlib.pyplot as plt
 
 st.markdown("---")
-st.markdown("<div class='section-title'>SCATTER</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>PLAYER METRICS</div>", unsafe_allow_html=True)
 
 # ---- helpers ----
 def _first_existing(cols, candidates):
@@ -1162,113 +1163,169 @@ def _first_existing(cols, candidates):
 def _as_num(s):
     return pd.to_numeric(s, errors="coerce")
 
+def _build_metric_options(df: pd.DataFrame) -> list[str]:
+    # include ANY column that produces at least 1 numeric value when coerced
+    # (so object columns containing numbers still show up)
+    bad_cols = {
+        "RowID", "Player", "Team", "League", "Position", "Primary Position", "PosGroup",
+        "Birth country", "Nationality", "Foot", "Preferred foot", "Preferred Foot"
+    }
+    opts = []
+    for c in df.columns:
+        if c in bad_cols:
+            continue
+        s = _as_num(df[c])
+        if s.notna().any():
+            opts.append(c)
+    return opts
+
 # ---- build options ----
-numeric_cols = df_all.select_dtypes(include="number").columns.tolist()
+metric_cols = _build_metric_options(df_all)
 
-# remove obviously non-metric numeric cols if present
-for bad in ["RowID"]:
-    if bad in numeric_cols:
-        numeric_cols.remove(bad)
-
-pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
-default_pos = "CB" if "CB" in pos_options else pos_options[0]
-
-# Default metrics (as you asked)
-x_default_candidates = ["Progressive passes per 90", "Progressive passes per duel", "Progressive passes"]
-y_default_candidates = ["Aerial duels won, %", "Aerial duel success %", "Aerial win %"]
-
-x_default = _first_existing(df_all.columns, x_default_candidates) or (numeric_cols[0] if numeric_cols else None)
-y_default = _first_existing(df_all.columns, y_default_candidates) or (numeric_cols[1] if len(numeric_cols) > 1 else x_default)
-
-with st.expander("Scatter settings", expanded=False):
-    c1, c2, c3 = st.columns([1.2, 2.2, 2.2])
-
-    with c1:
-        pos_pick = st.selectbox("Position group", pos_options, index=pos_options.index(default_pos), key="club_sc_pos")
-
-        # minutes slider (uses detected mins_col)
-        max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
-        m_min, m_max = st.slider(
-            "Minutes range",
-            0, max_m,
-            (500, min(5000, max_m)),
-            step=10,
-            key="club_sc_mins",
-        )
-
-    with c2:
-        x_metric = st.selectbox(
-            "X metric",
-            [c for c in numeric_cols],
-            index=(numeric_cols.index(x_default) if x_default in numeric_cols else 0),
-            key="club_sc_x",
-        )
-
-    with c3:
-        y_metric = st.selectbox(
-            "Y metric",
-            [c for c in numeric_cols],
-            index=(numeric_cols.index(y_default) if y_default in numeric_cols else min(1, len(numeric_cols)-1)),
-            key="club_sc_y",
-        )
-
-# ---- build pool ----
-pool = df_all.copy()
-pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
-
-pool = pool[(pool["PosGroup"].astype(str) == pos_pick)]
-pool = pool[pool[mins_col].between(m_min, m_max)]
-
-# numeric coercion
-pool[x_metric] = _as_num(pool[x_metric])
-pool[y_metric] = _as_num(pool[y_metric])
-
-pool = pool.dropna(subset=[x_metric, y_metric, "Player", "Team"])
-
-if pool.empty:
-    st.info("No players in the pool after filters.")
+if not metric_cols:
+    st.info("No numeric-like metric columns found to plot.")
 else:
-    team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
+    pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
+    default_pos = "CB" if "CB" in pos_options else pos_options[0]
 
-    others = pool[~team_mask]
-    team_players = pool[team_mask]
+    # Default metrics (as you asked)
+    x_default_candidates = ["Progressive passes per 90", "Progressive passes per duel", "Progressive passes"]
+    y_default_candidates = ["Aerial duels won, %", "Aerial duel success %", "Aerial win %"]
 
-    # ---- plot ----
-    fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
-    fig.patch.set_facecolor("#0e0e0f")
-    ax.set_facecolor("#0f151f")
+    x_default = _first_existing(df_all.columns, x_default_candidates) or metric_cols[0]
+    y_default = _first_existing(df_all.columns, y_default_candidates) or (metric_cols[1] if len(metric_cols) > 1 else metric_cols[0])
 
-    # others (grey)
-    ax.scatter(
-        others[x_metric], others[y_metric],
-        s=60, alpha=0.55,
-        edgecolors="none",
-        c="#cbd5e1",
-        zorder=2
-    )
+    with st.expander("Scatter settings", expanded=False):
+        c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.2, 1.6])
 
-    # team (red)
-    ax.scatter(
-        team_players[x_metric], team_players[y_metric],
-        s=110, alpha=0.98,
-        edgecolors="white", linewidths=1.2,
-        c="#C81E1E",
-        zorder=4
-    )
+        with c1:
+            pos_pick = st.selectbox(
+                "Position group",
+                pos_options,
+                index=pos_options.index(default_pos),
+                key="club_sc_pos"
+            )
 
-    ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
-    ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
+            # minutes slider (uses detected mins_col)
+            max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
+            m_min, m_max = st.slider(
+                "Minutes range",
+                0, max_m,
+                (1000, min(5000, max_m)),  # <-- default 1000+ (not 500)
+                step=10,
+                key="club_sc_mins",
+            )
 
-    ax.grid(True, linewidth=0.7, alpha=0.25)
-    ax.tick_params(colors="#e5e7eb")
-    for spine in ax.spines.values():
-        spine.set_color("#6b7280")
-        spine.set_linewidth(0.9)
+        with c2:
+            x_metric = st.selectbox(
+                "X metric",
+                metric_cols,
+                index=(metric_cols.index(x_default) if x_default in metric_cols else 0),
+                key="club_sc_x",
+            )
 
-    # subtle title (optional)
-    ax.set_title(f"{pos_pick} — {TEAM_NAME} highlighted", color="#f5f5f5", fontsize=14, pad=12, fontweight="semibold")
+        with c3:
+            y_metric = st.selectbox(
+                "Y metric",
+                metric_cols,
+                index=(metric_cols.index(y_default) if y_default in metric_cols else min(1, len(metric_cols) - 1)),
+                key="club_sc_y",
+            )
 
-    st.pyplot(fig, use_container_width=True)
+        with c4:
+            label_all = st.checkbox("Label every player", value=False, key="club_sc_label_all")
+
+    # ---- build pool ----
+    pool = df_all.copy()
+    pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
+
+    pool = pool[(pool["PosGroup"].astype(str) == pos_pick)]
+    pool = pool[pool[mins_col].between(m_min, m_max)]
+
+    # numeric coercion for chosen metrics
+    pool[x_metric] = _as_num(pool[x_metric])
+    pool[y_metric] = _as_num(pool[y_metric])
+
+    pool = pool.dropna(subset=[x_metric, y_metric, "Player", "Team"])
+
+    if pool.empty:
+        st.info("No players in the pool after filters.")
+    else:
+        team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
+
+        others = pool[~team_mask].copy()
+        team_players = pool[team_mask].copy()
+
+        # ---- plot ----
+        fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
+        fig.patch.set_facecolor("#0e0e0f")
+        ax.set_facecolor("#0f151f")
+
+        # others (grey)
+        ax.scatter(
+            others[x_metric], others[y_metric],
+            s=60, alpha=0.55,
+            edgecolors="none",
+            c="#cbd5e1",
+            zorder=2
+        )
+
+        # team (red)
+        ax.scatter(
+            team_players[x_metric], team_players[y_metric],
+            s=110, alpha=0.98,
+            edgecolors="white", linewidths=1.2,
+            c="#C81E1E",
+            zorder=4
+        )
+
+        # ---- labels (ONLY if toggled) ----
+        if label_all:
+            def _add_labels(df, color="#e5e7eb", fontsize=8, dx=6, dy=6, max_labels=None):
+                if df.empty:
+                    return
+                n = 0
+                for _, r in df.iterrows():
+                    if max_labels is not None and n >= max_labels:
+                        break
+                    name = str(r.get("Player", "")).strip()
+                    if not name:
+                        continue
+                    x = r.get(x_metric, None)
+                    y = r.get(y_metric, None)
+                    if pd.isna(x) or pd.isna(y):
+                        continue
+                    ax.annotate(
+                        name,
+                        (x, y),
+                        textcoords="offset points",
+                        xytext=(dx, dy),
+                        ha="left",
+                        va="bottom",
+                        fontsize=fontsize,
+                        color=color,
+                        zorder=6,
+                        clip_on=True
+                    )
+                    n += 1
+
+            # label everyone (team + others)
+            _add_labels(others, color="#e5e7eb", fontsize=8)
+            _add_labels(team_players, color="#ffffff", fontsize=9)
+
+        ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
+        ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
+
+        ax.grid(True, linewidth=0.7, alpha=0.25)
+        ax.tick_params(colors="#e5e7eb")
+        for spine in ax.spines.values():
+            spine.set_color("#6b7280")
+            spine.set_linewidth(0.9)
+
+        ax.set_title(f"{pos_pick} — {TEAM_NAME} highlighted", color="#f5f5f5", fontsize=14, pad=12, fontweight="semibold")
+
+        st.pyplot(fig, use_container_width=True)
+
 
 
 
