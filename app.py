@@ -2738,7 +2738,7 @@ plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
 
 
-# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, auto-selects TEAM_NAME, labels show LOWER-BETTER metrics -----------------
+# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, auto-selects TEAM_NAME, LOWER-BETTER ring numbers run “backwards” -----------------
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -2750,9 +2750,10 @@ st.header("📊 Team Comparison Radar")
 
 # ---- CONFIG ----
 TEAM_CSV_PATH = "ChinaTeams.csv"
+SUBTITLE_TEXT = "China Super League 2025"
 
 TEAM_RADAR_METRICS = [
-    "Team",  # kept for presence; not used as axis
+    "Team",
     "xG",
     "Goals",
     "xGA",
@@ -2766,14 +2767,11 @@ TEAM_RADAR_METRICS = [
     "Passes to Final 3rd",
 ]
 
-# Lower is better -> invert percentile (your request)
+# Lower is better -> invert percentile (shape) AND reverse ring numbers outward
 TEAM_LOWER_BETTER = {"xGA", "Goals Conceded", "PPDA"}
 
-# ---- FULL (NO ABBREVIATIONS) axis label helper + "lower is better" indicator ----
 def _team_axis_label(metric_name: str) -> str:
-    # No abbreviations. Just add an explicit note for lower-better metrics.
-    if metric_name in TEAM_LOWER_BETTER:
-        return f"{metric_name} (lower is better)"
+    # No extra text on outside labels (your request)
     return metric_name
 
 # ---- Dark theme only ----
@@ -2798,7 +2796,6 @@ TICK_FS = 7
 INNER_HOLE = 10
 
 def _tangent_rotation(ax, theta):
-    """Tangential rotation in display space, respecting theta offset/direction."""
     return np.degrees(ax.get_theta_direction() * theta + ax.get_theta_offset()) - 90.0
 
 @st.cache_data(show_spinner=False, ttl=60*60)
@@ -2806,7 +2803,6 @@ def _load_team_df(path: str) -> pd.DataFrame:
     df_t = pd.read_csv(path)
     if "Team" in df_t.columns:
         df_t["Team"] = df_t["Team"].astype(str).str.strip()
-    # numeric coercion
     for c in TEAM_RADAR_METRICS:
         if c in df_t.columns and c != "Team":
             df_t[c] = pd.to_numeric(df_t[c], errors="coerce")
@@ -2821,7 +2817,7 @@ def _pct_rank(pool: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
     return pct
 
 def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
-    """True decile values (0..100) per metric (raw values)."""
+    """True decile values (0..100) per metric (RAW values)."""
     qs = np.linspace(0, 100, 11)
     out = []
     for m in metrics:
@@ -2829,7 +2825,7 @@ def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
         out.append(np.nanpercentile(vals, qs) if len(vals) else np.full_like(qs, np.nan))
     return out
 
-def draw_team_radar(labels, A_r, B_r, ticks, headerA, subA, headerB, subB):
+def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
     N = len(labels)
     theta = np.linspace(0, 2*np.pi, N, endpoint=False)
     theta_c = np.concatenate([theta, theta[:1]])
@@ -2841,7 +2837,6 @@ def draw_team_radar(labels, A_r, B_r, ticks, headerA, subA, headerB, subB):
     ax = plt.subplot(111, polar=True)
     ax.set_facecolor(AX_BG)
 
-    # orientation
     ax.set_theta_offset(np.pi/2)
     ax.set_theta_direction(-1)
 
@@ -2851,8 +2846,9 @@ def draw_team_radar(labels, A_r, B_r, ticks, headerA, subA, headerB, subB):
     ax.grid(False)
     [s.set_visible(False) for s in ax.spines.values()]
 
-    # radial bands from INNER_HOLE -> 100
     ring_edges = np.linspace(INNER_HOLE, 100, 11)
+
+    # radial bands
     for i in range(10):
         r0, r1 = ring_edges[i], ring_edges[i+1]
         band = GRID_BAND_OUTER if ((9 - i) % 2 == 0) else GRID_BAND_INNER
@@ -2862,24 +2858,30 @@ def draw_team_radar(labels, A_r, B_r, ticks, headerA, subA, headerB, subB):
             edgecolor="none", zorder=0.8
         ))
 
-    # ring outlines (outer ring brighter)
+    # ring outlines
     ring_t = np.linspace(0, 2*np.pi, 361)
     for j, r in enumerate(ring_edges):
         col = RING_COLOR_OUTER if j == len(ring_edges) - 1 else RING_COLOR_INNER
         ax.plot(ring_t, np.full_like(ring_t, r), color=col, lw=RING_LW, zorder=0.9)
 
-    # decile tick labels (raw values, 1dp)
+    # ---- ring numbers (RAW deciles):
+    # For LOWER_BETTER metrics, show values "the other way" so outer ring corresponds to LOWER values.
     start_idx = 2  # show from 20th to reduce clutter
     for i, ang in enumerate(theta):
         vals = ticks[i]
-        for rr, v in zip(ring_edges[start_idx:], vals[start_idx:]):
+        if metrics[i] in TEAM_LOWER_BETTER:
+            vals_to_plot = vals[::-1]  # reverse 0..100 -> 100..0
+        else:
+            vals_to_plot = vals
+
+        for rr, v in zip(ring_edges[start_idx:], vals_to_plot[start_idx:]):
             if pd.isna(v):
                 continue
             ax.text(ang, rr - 1.8, f"{float(v):.1f}",
                     ha="center", va="center",
                     fontsize=TICK_FS, color=TICK_COLOR, zorder=1.1)
 
-    # outside labels (upright, outside 100 ring)
+    # outside labels
     OUTER_LABEL_R = 107.2
     for ang, lab in zip(theta, labels):
         rot = _tangent_rotation(ax, ang)
@@ -2906,12 +2908,12 @@ def draw_team_radar(labels, A_r, B_r, ticks, headerA, subA, headerB, subB):
 
     ax.set_rlim(0, 100)
 
-    # headers
+    # headers + subtitle
     fig.text(0.10, 0.95, headerA, color=COL_A, fontsize=TITLE_FS, fontweight="bold", ha="left")
-    fig.text(0.10, 0.925, subA,   color="#cbd5e1", fontsize=SUB_FS, ha="left")
+    fig.text(0.10, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="left")
 
     fig.text(0.90, 0.95, headerB, color=COL_B, fontsize=TITLE_FS, fontweight="bold", ha="right")
-    fig.text(0.90, 0.925, subB,   color="#cbd5e1", fontsize=SUB_FS, ha="right")
+    fig.text(0.90, 0.925, SUBTITLE_TEXT, color="#cbd5e1", fontsize=SUB_FS, ha="right")
 
     return fig
 
@@ -2925,10 +2927,8 @@ except Exception as e:
 if teams_df.empty or "Team" not in teams_df.columns:
     st.info("Team radar unavailable (missing ChinaTeams.csv or 'Team' column).")
 else:
-    # Auto-select Team A from your app's selected TEAM_NAME
     teamA_name = str(TEAM_NAME).strip()
 
-    # Try exact match, then case-insensitive match
     if teamA_name not in teams_df["Team"].values:
         hit = teams_df[teams_df["Team"].str.lower() == teamA_name.lower()]
         if not hit.empty:
@@ -2937,21 +2937,16 @@ else:
             st.warning(f"Selected TEAM_NAME '{TEAM_NAME}' not found in ChinaTeams.csv. Pick Team A manually below.")
             teamA_name = st.selectbox("Team A (red)", sorted(teams_df["Team"].unique().tolist()), key="team_radar_A")
 
-    # Team B dropdown (opponent)
     opps = [t for t in sorted(teams_df["Team"].unique().tolist()) if t != teamA_name]
     teamB_name = st.selectbox("Team B (blue)", opps, key="team_radar_B")
 
-    # Metrics that exist (exclude Team)
     metrics = [m for m in TEAM_RADAR_METRICS if m in teams_df.columns and m != "Team"]
     pool = teams_df.dropna(subset=["Team"]).copy()
-
-    # Drop rows that are missing all metrics
     pool = pool.dropna(subset=metrics, how="all")
 
     if not metrics:
         st.info("No radar metrics found in ChinaTeams.csv.")
     else:
-        # percentiles vs full pool (inverted where needed)
         pool_pct = _pct_rank(pool, metrics)
 
         def _team_pct(team: str) -> np.ndarray:
@@ -2963,26 +2958,22 @@ else:
         A_r = _team_pct(teamA_name)
         B_r = _team_pct(teamB_name)
 
-        # Labels: FULL metric names, plus explicit lower-better note
         labels = [_team_axis_label(m) for m in metrics]
-
-        # Decile ticks: raw values, not inverted (they represent the actual stat values)
         ticks = _decile_ticks(pool, metrics)
 
         fig = draw_team_radar(
-            labels, A_r, B_r, ticks,
-            headerA=teamA_name, subA="China Teams",
-            headerB=teamB_name, subB="China Teams",
+            labels, A_r, B_r, ticks, metrics,
+            headerA=teamA_name, headerB=teamB_name
         )
 
         st.caption(
-            "Radar shapes are **percentiles vs the full ChinaTeams pool**. "
-            "For **xGA, Goals Conceded, and PPDA**, percentiles are inverted so **lower = better** "
-            "(and the axis label states this). Ring numbers remain the **raw decile values** (1dp)."
+            "Radar shapes are **percentiles vs the full ChinaTeams pool** (xGA, Goals Conceded, PPDA are inverted so lower = better). "
+            "Ring numbers are **raw deciles (1dp)**; for those lower-better metrics, the ring numbers run **downwards** as you go outward."
         )
         st.pyplot(fig, use_container_width=True)
 
 # ----------------- END Team Radar -----------------
+
 
 
 
