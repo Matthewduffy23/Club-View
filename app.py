@@ -1200,7 +1200,7 @@ f"</div>"
 )
 st.markdown(header_html, unsafe_allow_html=True)
 
-
+st.caption("Tap the metrics to see what each value represents.")
 
 # =========================
 # PERFORMANCE
@@ -1210,8 +1210,6 @@ if PERFORMANCE_IMAGE_PATH and os.path.exists(PERFORMANCE_IMAGE_PATH):
     st.image(PERFORMANCE_IMAGE_PATH, use_container_width=True)
 else:
     st.warning(f"Performance image not found: {PERFORMANCE_IMAGE_PATH}")
-
-st.caption("Tap the metrics to see what each value represents.")
 
 
 # =========================
