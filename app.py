@@ -1463,7 +1463,7 @@ st.header("📊 Feature R — Squad Profile")
 # --------------------------------------------------------------------------------------
 # CONFIG
 # --------------------------------------------------------------------------------------
-CONTRACT_COL = "Contract expires"   # <= 2026 -> default red highlight
+CONTRACT_COL = "Contract expires"   # <= 2026 -> optional red highlight
 
 # Optional smart label library
 try:
@@ -1473,12 +1473,11 @@ except ImportError:
     HAVE_ADJUSTTEXT = False
 
 # --------------------------------------------------------------------------------------
-# SETTINGS PANEL
+# SETTINGS PANEL (kept as-is style, just updated defaults + toggles)
 # --------------------------------------------------------------------------------------
 with st.expander("Squad Profile settings", expanded=False):
 
     # --- Squad selection ---
-    # Use your app dataframe + default TEAM_NAME
     teams_available = sorted(df_all["Team"].dropna().unique())
 
     # Default priority:
@@ -1505,17 +1504,16 @@ with st.expander("Squad Profile settings", expanded=False):
     )
 
     # --- Axis filters ---
-    # Use detected minutes column from your app
     mcol = mins_col if "mins_col" in globals() else "Minutes played"
 
     df_all[mcol] = pd.to_numeric(df_all[mcol], errors="coerce")
     df_all["Age"] = pd.to_numeric(df_all["Age"], errors="coerce")
 
-    # Minutes 0–5000, default 0–4000 (keep as your feature)
+    # Minutes 0–5000, ✅ default 0–3500
     min_minutes_s, max_minutes_s = st.slider(
         "Minutes range (for axis & filter)",
         0, 5000,
-        (0, 4000),
+        (0, 3500),
         step=250,
         key="sq_min",
     )
@@ -1530,13 +1528,15 @@ with st.expander("Squad Profile settings", expanded=False):
 
     # --- Minutes bands (horizontal lines) ---
     st.markdown("**Minutes bands (horizontal dashed lines)**")
+
+    # ✅ defaults: Important=1000, Crucial=1750
     important_line = st.slider(
         "Important Player line (minutes)",
-        0, 5000, 500, step=250, key="sq_line_important",
+        0, 5000, 1000, step=250, key="sq_line_important",
     )
     crucial_line = st.slider(
         "Crucial Player line (minutes)",
-        0, 5000, 1000, step=250, key="sq_line_crucial",
+        0, 5000, 1750, step=250, key="sq_line_crucial",
     )
 
     band_lines = sorted(
@@ -1545,13 +1545,20 @@ with st.expander("Squad Profile settings", expanded=False):
         key=lambda x: x[1],
     )
 
-    # --- Contract highlight & custom red players ---
+    # --- Optional highlights (NOT default) ---
     auto_contract_red = st.checkbox(
         "Highlight players with contract ≤ 2026 in red",
-        value=True,
+        value=False,   # ✅ NOT default
         key="sq_auto_contract",
     )
 
+    visa_highlight = st.checkbox(
+        "Highlight visa players (exclude China PR) in red",
+        value=False,   # ✅ NOT default
+        key="sq_visa_highlight",
+    )
+
+    # --- custom red players (keep) ---
     team_players_all = sorted(
         df_all[df_all["Team"] == squad_team]["Player"].dropna().unique().tolist()
     )
@@ -1564,11 +1571,11 @@ with st.expander("Squad Profile settings", expanded=False):
 
     # --- Labels & points ---
     show_labels = st.toggle("Show labels", value=True, key="sq_show_labels")
-    label_size = st.slider("Label size", 8, 22, 15, 1, key="sq_lblsize")  # default 15
-    point_size = st.slider("Point size", 24, 300, 300, 2, key="sq_pts")   # default 300
+    label_size = st.slider("Label size", 8, 22, 15, 1, key="sq_lblsize")
+    point_size = st.slider("Point size", 24, 300, 300, 2, key="sq_pts")
     point_alpha = st.slider("Point opacity", 0.2, 1.0, 0.92, 0.02, key="sq_alpha")
 
-    # --- Theme & canvas (same style as your app) ---
+    # --- Theme & canvas ---
     PAGE_BG = "#0a0f1c"
     PLOT_BG = "#0a0f1c"
     GRID_MAJ = "#3a4050"
@@ -1606,8 +1613,9 @@ if squad.empty:
     st.stop()
 
 # --------------------------------------------------------------------------------------
-# CONTRACT HIGHLIGHT & CUSTOM HIGHLIGHT
+# HIGHLIGHTS: Contract ≤ 2026 (optional) + Visa players (optional) + Selected + Custom
 # --------------------------------------------------------------------------------------
+# Contract highlight (optional)
 if auto_contract_red and CONTRACT_COL in squad.columns:
     contract_year = (
         squad[CONTRACT_COL]
@@ -1621,12 +1629,23 @@ else:
     squad["ContractYear"] = np.nan
     squad["AutoRed"] = False
 
+# Visa highlight (optional): Birth country == "China PR" excluded; visa players = NOT China PR
+if visa_highlight and ("Birth country" in squad.columns):
+    bc_norm = _norm_series(squad["Birth country"])
+    squad["VisaRed"] = bc_norm.ne("china pr")
+else:
+    squad["VisaRed"] = False
+
+# Selected player (optional if you have player_row)
 squad["Selected"] = False
 if selected_player_name:
     squad["Selected"] = squad["Player"] == selected_player_name
 
+# Custom reds
 squad["CustomRed"] = squad["Player"].isin(custom_red_players)
-squad["IsRed"] = squad["AutoRed"] | squad["Selected"] | squad["CustomRed"]
+
+# Final red mask
+squad["IsRed"] = squad["AutoRed"] | squad["VisaRed"] | squad["Selected"] | squad["CustomRed"]
 
 # --------------------------------------------------------------------------------------
 # SCATTER BASE
@@ -1862,6 +1881,7 @@ else:
 
 plt.close(fig)
 # ============================== END FEATURE R ==========================================
+
 
 
 
