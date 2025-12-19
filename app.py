@@ -2738,7 +2738,7 @@ plt.close(fig)
 # ============================== END FEATURE — ARCHETYPE MAP =============================================================
 
 
-# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, auto-selects TEAM_NAME, LOWER-BETTER ring numbers run “backwards” -----------------
+# ----------------- (B2) TEAM COMPARISON RADAR — DARK ONLY, RAW VALUES (scaled), LOWER-BETTER rings run “backwards” -----------------
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -2767,11 +2767,12 @@ TEAM_RADAR_METRICS = [
     "Passes to Final 3rd",
 ]
 
-# Lower is better -> invert percentile (shape) AND reverse ring numbers outward
+# Lower is better -> invert the RADAR SHAPE (so “better” is outward)
+# and reverse the RING NUMBERS outward
 TEAM_LOWER_BETTER = {"xGA", "Goals Conceded", "PPDA"}
 
 def _team_axis_label(metric_name: str) -> str:
-    # No extra text on outside labels (your request)
+    # No extra “lower is better” text on outside labels
     return metric_name
 
 # ---- Dark theme only ----
@@ -2808,14 +2809,6 @@ def _load_team_df(path: str) -> pd.DataFrame:
             df_t[c] = pd.to_numeric(df_t[c], errors="coerce")
     return df_t
 
-def _pct_rank(pool: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
-    """0..100 percentiles per metric, with inversion for LOWER_BETTER metrics."""
-    pct = pool[metrics].rank(pct=True) * 100.0
-    for m in metrics:
-        if m in TEAM_LOWER_BETTER:
-            pct[m] = 100.0 - pct[m]
-    return pct
-
 def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
     """True decile values (0..100) per metric (RAW values)."""
     qs = np.linspace(0, 100, 11)
@@ -2824,6 +2817,37 @@ def _decile_ticks(pool: pd.DataFrame, metrics: list[str]) -> list[np.ndarray]:
         vals = pool[m].dropna().values
         out.append(np.nanpercentile(vals, qs) if len(vals) else np.full_like(qs, np.nan))
     return out
+
+def _scale_pool_minmax(pool: pd.DataFrame, metrics: list[str]) -> dict:
+    """
+    Build per-metric min/max for scaling raw values to 0..100.
+    Using min/max of pool; if flat, max==min -> avoid div0.
+    """
+    mm = {}
+    for m in metrics:
+        s = pd.to_numeric(pool[m], errors="coerce")
+        mn = float(np.nanmin(s.values)) if np.isfinite(np.nanmin(s.values)) else np.nan
+        mx = float(np.nanmax(s.values)) if np.isfinite(np.nanmax(s.values)) else np.nan
+        mm[m] = (mn, mx)
+    return mm
+
+def _scale_row_to_0_100(row: pd.Series, metrics: list[str], mm: dict) -> np.ndarray:
+    """
+    Convert RAW values to 0..100 scale per metric so they can share one radar.
+    For TEAM_LOWER_BETTER metrics, invert AFTER scaling so “better” still points outward.
+    """
+    out = []
+    for m in metrics:
+        v = pd.to_numeric(row.get(m, np.nan), errors="coerce")
+        mn, mx = mm.get(m, (np.nan, np.nan))
+        if pd.isna(v) or pd.isna(mn) or pd.isna(mx) or mx == mn:
+            out.append(np.nan)
+            continue
+        scaled = (float(v) - float(mn)) / (float(mx) - float(mn)) * 100.0
+        if m in TEAM_LOWER_BETTER:
+            scaled = 100.0 - scaled
+        out.append(scaled)
+    return np.array(out, dtype=float)
 
 def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
     N = len(labels)
@@ -2864,22 +2888,20 @@ def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
         col = RING_COLOR_OUTER if j == len(ring_edges) - 1 else RING_COLOR_INNER
         ax.plot(ring_t, np.full_like(ring_t, r), color=col, lw=RING_LW, zorder=0.9)
 
-    # ---- ring numbers (RAW deciles):
-    # For LOWER_BETTER metrics, show values "the other way" so outer ring corresponds to LOWER values.
-    start_idx = 2  # show from 20th to reduce clutter
+    # ring numbers (RAW deciles, 1dp):
+    # For LOWER_BETTER metrics, show numbers decreasing as you go outward.
+    start_idx = 2
     for i, ang in enumerate(theta):
         vals = ticks[i]
-        if metrics[i] in TEAM_LOWER_BETTER:
-            vals_to_plot = vals[::-1]  # reverse 0..100 -> 100..0
-        else:
-            vals_to_plot = vals
-
+        vals_to_plot = vals[::-1] if metrics[i] in TEAM_LOWER_BETTER else vals
         for rr, v in zip(ring_edges[start_idx:], vals_to_plot[start_idx:]):
             if pd.isna(v):
                 continue
-            ax.text(ang, rr - 1.8, f"{float(v):.1f}",
-                    ha="center", va="center",
-                    fontsize=TICK_FS, color=TICK_COLOR, zorder=1.1)
+            ax.text(
+                ang, rr - 1.8, f"{float(v):.1f}",
+                ha="center", va="center",
+                fontsize=TICK_FS, color=TICK_COLOR, zorder=1.1
+            )
 
     # outside labels
     OUTER_LABEL_R = 107.2
@@ -2900,7 +2922,7 @@ def draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA, headerB):
     ax.add_artist(Circle((0, 0), radius=INNER_HOLE - 0.6,
                          transform=ax.transData._b, color=PAGE_BG, zorder=1.2, ec="none"))
 
-    # polygons
+    # polygons (SCALED RAW 0..100)
     ax.plot(theta_c, Ar, color=COL_A, lw=2.2, zorder=3)
     ax.fill(theta_c, Ar, color=FILL_A, zorder=2.5)
     ax.plot(theta_c, Br, color=COL_B, lw=2.2, zorder=3)
@@ -2942,37 +2964,42 @@ else:
 
     metrics = [m for m in TEAM_RADAR_METRICS if m in teams_df.columns and m != "Team"]
     pool = teams_df.dropna(subset=["Team"]).copy()
+
+    # drop teams with all-metric NaNs
     pool = pool.dropna(subset=metrics, how="all")
 
     if not metrics:
         st.info("No radar metrics found in ChinaTeams.csv.")
     else:
-        pool_pct = _pct_rank(pool, metrics)
+        rowA_all = pool[pool["Team"] == teamA_name]
+        rowB_all = pool[pool["Team"] == teamB_name]
+        if rowA_all.empty or rowB_all.empty:
+            st.info("One of the selected teams is missing from the pool after cleaning.")
+        else:
+            rowA = rowA_all.iloc[0]
+            rowB = rowB_all.iloc[0]
 
-        def _team_pct(team: str) -> np.ndarray:
-            idx = pool.index[pool["Team"] == team]
-            if len(idx) == 0:
-                return np.full(len(metrics), np.nan)
-            return pool_pct.loc[idx, metrics].mean(axis=0).values
+            # scale raw -> 0..100 for radar radii (per metric)
+            mm = _scale_pool_minmax(pool, metrics)
+            A_r = _scale_row_to_0_100(rowA, metrics, mm)
+            B_r = _scale_row_to_0_100(rowB, metrics, mm)
 
-        A_r = _team_pct(teamA_name)
-        B_r = _team_pct(teamB_name)
+            labels = [_team_axis_label(m) for m in metrics]
 
-        labels = [_team_axis_label(m) for m in metrics]
-        ticks = _decile_ticks(pool, metrics)
+            # ring numbers = raw deciles (1dp), with lower-better reversed outward
+            ticks = _decile_ticks(pool, metrics)
 
-        fig = draw_team_radar(
-            labels, A_r, B_r, ticks, metrics,
-            headerA=teamA_name, headerB=teamB_name
-        )
+            fig = draw_team_radar(labels, A_r, B_r, ticks, metrics, headerA=teamA_name, headerB=teamB_name)
 
-        st.caption(
-            "Radar shapes are **percentiles vs the full ChinaTeams pool** (xGA, Goals Conceded, PPDA are inverted so lower = better). "
-            "Ring numbers are **raw deciles (1dp)**; for those lower-better metrics, the ring numbers run **downwards** as you go outward."
-        )
-        st.pyplot(fig, use_container_width=True)
+            st.caption(
+                "Radar shapes use **RAW team values scaled to 0–100 per metric** (min→0, max→100 within the ChinaTeams pool). "
+                "For xGA, Goals Conceded, PPDA the shape is inverted so **lower is better** points outward. "
+                "Ring numbers are **raw deciles (1dp)**; for those lower-better metrics, the ring numbers run **downwards** as you go outward."
+            )
+            st.pyplot(fig, use_container_width=True)
 
 # ----------------- END Team Radar -----------------
+
 
 
 
