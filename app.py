@@ -1820,13 +1820,6 @@ plt.close(fig)
 
 # =========================
 # FEATURE — TEAM PERFORMANCE (Scatter like Player Performance)
-# - ChinaTeams.csv
-# - Minimal UI: ONLY X metric + Y metric
-# - Default: xG (X) vs xGA (Y)
-# - TEAM_NAME highlighted in red
-# - Median reference lines
-# - Labels (team names) ON by default
-# - Export PNG button
 # =========================
 from io import BytesIO
 import os
@@ -1841,7 +1834,7 @@ st.markdown("<div class='section-title'>TEAM PERFORMANCE</div>", unsafe_allow_ht
 TEAM_CSV = "ChinaTeams.csv"
 
 if not os.path.exists(TEAM_CSV):
-    st.error(f"ChinaTeams.csv not found at: {TEAM_CSV}. Upload it to your repo root.")
+    st.error(f"ChinaTeams.csv not found at: {TEAM_CSV}")
     st.stop()
 
 df_team = pd.read_csv(TEAM_CSV)
@@ -1858,10 +1851,9 @@ for c in df_team.columns:
 df_team["Team"] = df_team["Team"].astype(str).str.strip()
 df_team = df_team.dropna(subset=["Team"]).copy()
 
-# -------------------------
-# Metric options (footballing metrics only)
-# (prefers these; falls back to other numeric cols if present)
-# -------------------------
+# -------------------------------------------------
+# Metric options (football metrics only)
+# -------------------------------------------------
 PREFERRED_TEAM_METRICS = [
     "xG",
     "Goals",
@@ -1874,35 +1866,33 @@ PREFERRED_TEAM_METRICS = [
     "Ball Possession (%)",
     "Ball possession",
     "Touches in Box",
-    "Touches in box",
     "PPDA",
     "Passes",
     "Passing %",
     "Long Passes",
     "Passes to Final 3rd",
-    "Passes to Final 3rd",
     "Passes to final third",
 ]
 
-# Build selectable list:
-numeric_cols = [c for c in df_team.columns if c != "Team" and pd.api.types.is_numeric_dtype(df_team[c])]
-preferred = [c for c in PREFERRED_TEAM_METRICS if c in df_team.columns and c in numeric_cols]
-extras = [c for c in numeric_cols if c not in preferred]
+numeric_cols = [
+    c for c in df_team.columns
+    if c != "Team" and pd.api.types.is_numeric_dtype(df_team[c])
+]
 
-# If you ONLY want the known football metrics, keep just `preferred`.
-# But if your file has more football metrics you want selectable, we append `extras`.
+preferred = [c for c in PREFERRED_TEAM_METRICS if c in numeric_cols]
+extras = [c for c in numeric_cols if c not in preferred]
 TEAM_FEATURES = preferred + extras
 
 if not TEAM_FEATURES:
-    st.error("No numeric metric columns found in ChinaTeams.csv.")
+    st.error("No numeric metric columns found.")
     st.stop()
 
 # Defaults
 x_default = "xG" if "xG" in TEAM_FEATURES else TEAM_FEATURES[0]
-y_default = "xGA" if "xGA" in TEAM_FEATURES else (TEAM_FEATURES[1] if len(TEAM_FEATURES) > 1 else TEAM_FEATURES[0])
+y_default = "xGA" if "xGA" in TEAM_FEATURES else TEAM_FEATURES[1]
 
 with st.expander("Team scatter settings", expanded=False):
-    c1, c2 = st.columns([1, 1])
+    c1, c2 = st.columns(2)
     with c1:
         x_metric = st.selectbox(
             "X metric",
@@ -1914,24 +1904,48 @@ with st.expander("Team scatter settings", expanded=False):
         y_metric = st.selectbox(
             "Y metric",
             TEAM_FEATURES,
-            index=TEAM_FEATURES.index(y_default) if y_default in TEAM_FEATURES else 0,
+            index=TEAM_FEATURES.index(y_default),
             key="team_sc_y",
         )
 
-# Drop NAs for chosen metrics
-pool = df_team.dropna(subset=["Team", x_metric, y_metric]).copy()
+pool = df_team.dropna(subset=[x_metric, y_metric]).copy()
 if pool.empty:
     st.info("No teams have data for the selected metrics.")
     st.stop()
 
-# Highlight TEAM_NAME (from your app config)
+# Highlight TEAM_NAME
 team_name = TEAM_NAME if "TEAM_NAME" in globals() else ""
-team_mask = pool["Team"].astype(str).str.strip().eq(str(team_name).strip()) if team_name else pd.Series(False, index=pool.index)
+team_mask = pool["Team"].eq(team_name) if team_name else pd.Series(False, index=pool.index)
 
 others = pool[~team_mask]
 highlight = pool[team_mask]
 
-# ---- Plot ----
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
+def padded_limits(arr, pad_frac=0.10, headroom_frac=0.06):
+    a_min = float(np.nanmin(arr))
+    a_max = float(np.nanmax(arr))
+    if a_min == a_max:
+        a_min -= 1e-6
+        a_max += 1e-6
+    span = a_max - a_min
+    return (
+        a_min - span * pad_frac,
+        a_max + span * (pad_frac + headroom_frac),
+    )
+
+LOWER_BETTER = {
+    "xGA",
+    "Goals Conceded",
+    "Goals conceded",
+    "Conceded goals",
+    "xG per shot against",
+}
+
+# -------------------------------------------------
+# Plot
+# -------------------------------------------------
 fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
 fig.patch.set_facecolor("#0e0e0f")
 ax.set_facecolor("#0f151f")
@@ -1939,53 +1953,41 @@ ax.set_facecolor("#0f151f")
 x_vals = pool[x_metric].to_numpy(float)
 y_vals = pool[y_metric].to_numpy(float)
 
-def padded_limits(arr, pad_frac=0.06):
-    a_min = float(np.nanmin(arr))
-    a_max = float(np.nanmax(arr))
-    if not np.isfinite(a_min) or not np.isfinite(a_max):
-        return (0, 1)
-    if a_min == a_max:
-        a_min -= 1e-6
-        a_max += 1e-6
-    span = a_max - a_min
-    pad = span * pad_frac
-    return a_min - pad, a_max + pad
-
 ax.set_xlim(*padded_limits(x_vals))
 ax.set_ylim(*padded_limits(y_vals))
 
-# Others (grey)
+# Flip axis if defensive-against metric
+if y_metric in LOWER_BETTER:
+    ax.invert_yaxis()
+
+# Points
 ax.scatter(
     others[x_metric], others[y_metric],
     s=140, alpha=0.90,
-    edgecolors="none",
     c="#cbd5e1",
+    edgecolors="none",
     zorder=2
 )
 
-# Default team (red)
 if not highlight.empty:
     ax.scatter(
         highlight[x_metric], highlight[y_metric],
-        s=200, alpha=0.98,
-        edgecolors="white", linewidths=1.6,
+        s=220, alpha=0.98,
         c="#C81E1E",
+        edgecolors="white",
+        linewidths=1.6,
         zorder=4
     )
 
 # Medians
-med_x = float(np.nanmedian(x_vals))
-med_y = float(np.nanmedian(y_vals))
-ax.axvline(med_x, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
-ax.axhline(med_y, color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+ax.axvline(np.nanmedian(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-# Labels (all teams)
+# Labels
 for _, r in pool.iterrows():
-    px, py = float(r[x_metric]), float(r[y_metric])
-    is_hl = bool(team_mask.loc[r.name]) if r.name in team_mask.index else False
     t = ax.annotate(
-        str(r["Team"]),
-        (px, py),
+        r["Team"],
+        (r[x_metric], r[y_metric]),
         xytext=(10, 10),
         textcoords="offset points",
         fontsize=11,
@@ -1993,13 +1995,20 @@ for _, r in pool.iterrows():
         color="#f5f5f5",
         ha="left",
         va="bottom",
-        zorder=6 if is_hl else 5,
+        zorder=6 if r["Team"] == team_name else 5,
     )
-    t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
+    t.set_path_effects([
+        pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)
+    ])
 
-# Axes / grid
+# Axes
 ax.set_xlabel(x_metric, fontsize=14, fontweight="semibold", color="#f5f5f5")
-ax.set_ylabel(y_metric, fontsize=14, fontweight="semibold", color="#f5f5f5")
+ax.set_ylabel(
+    f"{y_metric} (lower = better)" if y_metric in LOWER_BETTER else y_metric,
+    fontsize=14,
+    fontweight="semibold",
+    color="#f5f5f5",
+)
 
 ax.grid(True, linewidth=0.7, alpha=0.25)
 ax.tick_params(colors="#e5e7eb")
@@ -2007,23 +2016,32 @@ for spine in ax.spines.values():
     spine.set_color("#6b7280")
     spine.set_linewidth(0.9)
 
-# Subtitle on chart only (keeps section title as TEAM PERFORMANCE)
-ax.set_title(f"{x_metric} vs {y_metric}", color="#f5f5f5", fontsize=14, pad=12, fontweight="semibold")
+ax.set_title(
+    f"{x_metric} vs {y_metric}",
+    fontsize=14,
+    fontweight="semibold",
+    color="#f5f5f5",
+    pad=14,
+)
 
 st.pyplot(fig, use_container_width=True)
 
-# Export button
+# -------------------------------------------------
+# Export
+# -------------------------------------------------
 buf = BytesIO()
 fig.savefig(buf, format="png", dpi=220, facecolor=fig.get_facecolor())
 buf.seek(0)
+
 st.download_button(
     "Export chart (PNG)",
     data=buf.getvalue(),
-    file_name=f"team_performance_{x_metric}_vs_{y_metric}.png".replace(" ", "_").replace("%", "pct"),
+    file_name=f"team_performance_{x_metric}_vs_{y_metric}.png".replace(" ", "_"),
     mime="image/png",
 )
 
 plt.close(fig)
+
 
 
 
