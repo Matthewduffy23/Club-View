@@ -1233,6 +1233,11 @@ TEAM_NOTES = {
         "weaknesses": [
             "Finishing",
         ],
+        "formations": [
+            ("4-5-1", 55),
+            ("3-4-3", 44),
+            ("4-2-3-1", 25),
+        ],
     },
 
     "beijing guoan": {
@@ -1248,6 +1253,11 @@ TEAM_NOTES = {
         ],
         "weaknesses": [
             "Conceding Goals",
+        ],
+        "formations": [
+            ("4-3-3", 48),
+            ("3-5-2", 32),
+            ("4-2-3-1", 20),
         ],
     },
 }
@@ -1266,6 +1276,25 @@ def _chip_row(items, bg):
         f"display:inline-block;'>"
         f"{html.escape(str(t))}</span>"
         for t in items
+    )
+
+def _formation_row(items):
+    """
+    items: list of tuples like [("4-3-3", 48), ("3-5-2", 32)]
+    """
+    if not items:
+        return ""
+    return "".join(
+        f"<span style='background:#fde68a;"
+        f"color:#0b0d12;"
+        f"padding:6px 14px;"
+        f"border-radius:999px;"
+        f"font-weight:700;"
+        f"font-size:14px;"
+        f"margin:0 8px 10px 0;"
+        f"display:inline-block;'>"
+        f"{html.escape(str(shape))} &nbsp; {int(pct)}%</span>"
+        for shape, pct in items
     )
 
 # ---- SAFE lookup (no NameError possible) ----
@@ -1292,16 +1321,24 @@ if notes:
         {_chip_row(notes.get("strengths", []), "#a7f3d0")}
       </div>
 
-      <div>
+      <div style="margin-bottom:14px;">
         <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
           Weaknesses
         </div>
         {_chip_row(notes.get("weaknesses", []), "#fecaca")}
       </div>
 
+      <div>
+        <div style="color:#c9d3f2;font-weight:700;font-size:14px;margin-bottom:6px;">
+          Formations Used
+        </div>
+        {_formation_row(notes.get("formations", []))}
+      </div>
+
     </div>
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
+
 
 
 
