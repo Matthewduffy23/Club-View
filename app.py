@@ -909,6 +909,30 @@ header, footer { visibility:hidden; }
 # You had: st.markdown("""<style>  // ...""")
 # That "//" is not valid in Python. Use "#" comments outside strings, like above.
 
+/* ===== GLOBAL MOBILE SAFE AREA (prevents Streamlit overlays covering content) ===== */
+@media (max-width: 600px){
+
+  /* Give the whole page a right gutter */
+  .block-container{
+    padding-right: 96px !important;
+    padding-bottom: 160px !important;
+  }
+
+  /* Your custom cards too (belt + braces) */
+  .pro-card, .m-sec{
+    padding-right: 96px !important;
+  }
+
+  /* Streamlit expanders (your "Individual Metrics") */
+  [data-testid="stExpander"],
+  [data-testid="stExpander"] > div,
+  [data-testid="stExpanderHeader"],
+  .streamlit-expanderHeader{
+    margin-right: 96px !important;
+  }
+}
+
+
 
 # =========================
 # LOAD DATA
@@ -1121,6 +1145,9 @@ if notes:
     </div>
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
+
+
+
 
 
 
