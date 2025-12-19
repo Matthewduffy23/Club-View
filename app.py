@@ -1285,7 +1285,7 @@ def _formation_row(items):
     if not items:
         return ""
     return "".join(
-        f"<span style='background:#fde68a;"
+        f"<span style='background:#e5e7eb;"
         f"color:#0b0d12;"
         f"padding:6px 14px;"
         f"border-radius:999px;"
