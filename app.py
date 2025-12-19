@@ -968,9 +968,9 @@ else:
 # TEAM NOTES (MANUAL – TWO TEAMS ONLY)
 # Edit text here ONLY
 # =========================
-import html  # <-- add once (safe even if already imported)
+import html  # safe to include once
 
-TEAM_NOTES = {
+TEAM_NOTES_RAW = {
     "Chengdu Rongcheng": {
         "style": [
             "Possession",
@@ -1006,6 +1006,9 @@ TEAM_NOTES = {
     },
 }
 
+# 🔑 Normalize keys ONCE
+TEAM_NOTES = {_norm_one(k): v for k, v in TEAM_NOTES_RAW.items()}
+
 def _chip_row(items, bg):
     if not items:
         return ""
@@ -1022,6 +1025,7 @@ def _chip_row(items, bg):
         for t in items
     )
 
+# --- Resolve team notes ---
 team_key = _norm_one(TEAM_NAME)
 notes = TEAM_NOTES.get(team_key)
 
@@ -1040,6 +1044,7 @@ if notes:
     </div>
     """
     st.markdown(team_notes_html, unsafe_allow_html=True)
+
 
 
 
