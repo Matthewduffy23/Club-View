@@ -2042,6 +2042,657 @@ plt.close(fig)
 # ============================== END FEATURE R ==========================================
 
 
+# ============================== FEATURE — ARCHETYPE MAP (ALL POSITIONS) ==============================
+# One dropdown: Position Group
+# Auto-builds the correct pool + metrics + archetypes + quadrant labels
+# Auto highlight + label ONLY your TEAM_NAME
+# Keeps the same dark style + export PNG
+# ===============================================================================================
+
+from scipy.stats import rankdata
+from io import BytesIO
+import uuid
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import MultipleLocator
+from matplotlib import patheffects as pe
+
+st.markdown("---")
+st.header("🧭 Feature — Archetype Map")
+
+# Optional smart label library
+try:
+    from adjustText import adjust_text
+    HAVE_ADJUSTTEXT = True
+except Exception:
+    HAVE_ADJUSTTEXT = False
+
+# ------------------------------------------------------------------
+# SETTINGS (MINIMAL)
+# ------------------------------------------------------------------
+pos_options = [
+    ("Center Back", "CB"),
+    ("Full Back", "FB"),
+    ("Central Midfield", "CM"),
+    ("Attacker", "ATT"),
+    ("Striker", "CF"),
+    ("Goalkeeper", "GK"),
+]
+
+pos_label_to_key = {k: v for k, v in pos_options}
+default_pos_key = "CB"
+
+pos_pick_label = st.selectbox(
+    "Position",
+    options=[k for k, _ in pos_options],
+    index=[v for _, v in pos_options].index(default_pos_key),
+    key="arch_pos_pick",
+)
+POS_KEY = pos_label_to_key[pos_pick_label]
+
+# Keep your existing league preset behaviour (uses globals if present)
+leagues_available_sc = sorted(df["League"].dropna().unique().tolist())
+player_league = player_row.iloc[0]["League"] if ("player_row" in globals() and not player_row.empty) else None
+
+preset_sc = st.selectbox(
+    "League preset",
+    ["Player's league", "Top 5 Europe", "Top 20 Europe", "EFL (England 2–4)", "Custom"],
+    index=0,
+    key="arch_preset",
+)
+
+preset_map_sc = {
+    "Player's league": {player_league} if player_league else set(),
+    "Top 5 Europe": set(PRESET_LEAGUES.get("Top 5 Europe", [])),
+    "Top 20 Europe": set(PRESET_LEAGUES.get("Top 20 Europe", [])),
+    "EFL (England 2–4)": set(PRESET_LEAGUES.get("EFL (England 2–4)", [])),
+    "Custom": set(),
+}
+
+add_leagues_sc = st.multiselect("Add leagues", leagues_available_sc, default=[], key="arch_add_leagues")
+leagues_scatter = sorted(preset_map_sc[preset_sc] | set(add_leagues_sc))
+if not leagues_scatter and player_league:
+    leagues_scatter = [player_league]
+
+# Minimal filters (keep defaults like your other feature)
+df["Minutes played"] = pd.to_numeric(df["Minutes played"], errors="coerce")
+df["Age"] = pd.to_numeric(df["Age"], errors="coerce")
+
+min_minutes_s, max_minutes_s = st.slider("Minutes", 0, 5000, (500, 5000), key="arch_mins")
+min_age_s, max_age_s = st.slider("Age", 14, 45, (16, 40), key="arch_age")
+min_strength_s, max_strength_s = st.slider("League Strength", 0, 101, (0, 101), key="arch_ls")
+
+# Canvas
+PAGE_BG = "#0a0f1c"
+PLOT_BG = "#0a0f1c"
+GRID_MAJ = "#3a4050"
+txt_col = "#f1f5f9"
+
+canvas_preset = st.selectbox(
+    "Canvas size",
+    ["1280×720", "1600×900", "1920×820", "1920×1080"],
+    index=1,
+    key="arch_canvas",
+)
+w_px, h_px = map(int, canvas_preset.replace("×", "x").split("x"))
+top_gap_px = st.slider("Top gap (px)", 0, 240, 80, 5, key="arch_gap")
+render_exact = st.checkbox("Render exact pixels (PNG)", value=True, key="arch_exact")
+
+# ------------------------------------------------------------------
+# POSITION FILTERS + METRIC DEFINITIONS (ALL IN ONE)
+# ------------------------------------------------------------------
+def _primary_pos(sr: pd.Series) -> pd.Series:
+    return sr.astype(str).str.split(",").str[0].str.strip().str.upper()
+
+POS_FILTERS = {
+    "CB": lambda p: p.isin(["LCB", "RCB", "CB"]),
+    "FB": lambda p: p.isin(["LB", "LWB", "RB", "RWB"]),
+    "CM": lambda p: p.isin(["LCMF", "RCMF", "CMF", "DMF", "LDMF", "RDMF"]),
+    "ATT": lambda p: p.isin(["LWF", "RWF", "LW", "RW", "LAMF", "RAMF", "AMF"]),
+    "CF": lambda p: p.isin(["CF"]),
+    "GK": lambda p: p.isin(["GK"]),
+}
+
+# Archetype colours (shared)
+ARCH_COLORS = {
+    "Build-Up": "#76B7B2",
+    "Lockdown": "#F28E2B",
+    "Two-Way": "#4E79A7",
+    "Limited": "#E15759",
+
+    "Complete": "#4E79A7",
+    "Box-Defender": "#F28E2B",
+    "Ball Player": "#76B7B2",
+
+    "All Action": "#4E79A7",
+    "Destroyer": "#F28E2B",
+    "Playmaker": "#76B7B2",
+
+    "Multi-Threat": "#4E79A7",
+    "Final Action": "#76B7B2",
+    "Facilitator": "#F28E2B",
+
+    "Poacher": "#76B7B2",
+    "Link-Up": "#F28E2B",
+
+    "Shot Stopper": "#76B7B2",
+}
+
+def weighted_percentile(df_sub: pd.DataFrame, row: pd.Series, mgrp: dict) -> float:
+    total = 0.0
+    n = len(df_sub)
+    if n <= 1:
+        return 0.0
+    for m, w in mgrp.items():
+        if m not in df_sub.columns:
+            continue
+        vals = pd.to_numeric(df_sub[m], errors="coerce").fillna(0.0).to_numpy(float)
+        pct = rankdata(vals) / float(n)
+        idx = df_sub.index.get_loc(row.name)
+        total += float(pct[idx]) * float(w)
+    return total * 100.0
+
+def build_position_config(pos_key: str):
+    """
+    Returns:
+      - x_key, y_key (column names for scatter)
+      - metric_groups dict (score cols to compute)
+      - archetype function
+      - flags: dict of {flag_col: (bool_series rule, marker)}
+      - quadrant labels (tl, tr, bl, br)
+      - axis labels (xlab, ylab)
+      - title
+    """
+    if pos_key == "FB":
+        metric_groups = {
+            "def_score": {
+                "Defensive duels per 90": 0.4,
+                "Defensive duels won, %": 0.3,
+                "PAdj Interceptions": 0.2,
+                "Shots blocked per 90": 0.1,
+            },
+            "poss_score": {
+                "Passes per 90": 0.1,
+                "Crosses per 90": 0.1,
+                "Forward passes per 90": 0.1,
+                "Progressive passes per 90": 0.2,
+                "xA per 90": 0.1,
+                "Dribbles per 90": 0.1,
+                "Progressive runs per 90": 0.2,
+                "Passes to penalty area per 90": 0.1,
+            },
+            "carry_score": {
+                "Dribbles per 90": 0.4,
+                "Successful dribbles, %": 0.1,
+                "Progressive runs per 90": 0.3,
+                "Accelerations per 90": 0.2,
+            },
+        }
+
+        def classify(r):
+            if r["def_score"] >= 50 and r["poss_score"] >= 50:
+                return "Two-Way"
+            if r["def_score"] >= 50:
+                return "Lockdown"
+            if r["poss_score"] >= 50:
+                return "Build-Up"
+            return "Limited"
+
+        flags = {
+            "Ball Carrier": ("carry_score", 70, "s"),  # square
+        }
+
+        return dict(
+            x_key="poss_score", y_key="def_score",
+            metric_groups=metric_groups,
+            classify=classify,
+            flags=flags,
+            quad=("LOCKDOWN", "COMPLETE", "LIMITED", "BUILD UP/ATTACKING"),
+            xlab="Possession Score", ylab="Defensive Score",
+            title="Full Back Archetype Map",
+        )
+
+    if pos_key == "CB":
+        metric_groups = {
+            "def_score": {
+                "Defensive duels per 90": 0.1,
+                "Defensive duels won, %": 0.3,
+                "PAdj Interceptions": 0.2,
+                "Aerial duels won, %": 0.3,
+                "Shots blocked per 90": 0.1,
+            },
+            "poss_score": {
+                "Passes per 90": 0.1,
+                "Forward passes per 90": 0.1,
+                "Progressive passes per 90": 0.25,
+                "Dribbles per 90": 0.1,
+                "Progressive runs per 90": 0.2,
+                "Accurate passes, %": 0.15,
+                "Accurate long passes, %": 0.1,
+            },
+            "carry_score": {
+                "Dribbles per 90": 0.4,
+                "Successful dribbles, %": 0.1,
+                "Progressive runs per 90": 0.3,
+                "Accelerations per 90": 0.2,
+            },
+        }
+
+        def classify(r):
+            if r["def_score"] >= 50 and r["poss_score"] >= 50:
+                return "Complete"
+            if r["def_score"] >= 50:
+                return "Box-Defender"
+            if r["poss_score"] >= 50:
+                return "Ball Player"
+            return "Limited"
+
+        flags = {
+            "Ball Carrier": ("carry_score", 70, "s"),
+        }
+
+        return dict(
+            x_key="poss_score", y_key="def_score",
+            metric_groups=metric_groups,
+            classify=classify,
+            flags=flags,
+            quad=("BOX-DEFENDER", "COMPLETE", "LIMITED", "BALL PLAYER"),
+            xlab="Possession Score", ylab="Defensive Score",
+            title="Center Back Archetype Map",
+        )
+
+    if pos_key == "CM":
+        metric_groups = {
+            "def_score": {
+                "Defensive duels per 90": 0.4,
+                "Defensive duels won, %": 0.3,
+                "PAdj Interceptions": 0.2,
+                "Shots blocked per 90": 0.1,
+            },
+            "poss_score": {
+                "Passes per 90": 0.2,
+                "Accurate passes, %": 0.1,
+                "Forward passes per 90": 0.2,
+                "Progressive passes per 90": 0.2,
+                "xA per 90": 0.1,
+                "Key passes per 90": 0.1,
+                "Passes to penalty area per 90": 0.1,
+            },
+            "carry_score": {
+                "Dribbles per 90": 0.4,
+                "Successful dribbles, %": 0.1,
+                "Progressive runs per 90": 0.3,
+                "Accelerations per 90": 0.2,
+            },
+            "boxing_score": {
+                "xG per 90": 0.3,
+                "Non-penalty goals per 90": 0.4,
+                "Touches in box per 90": 0.3,
+            },
+        }
+
+        def classify(r):
+            if r["def_score"] >= 50 and r["poss_score"] >= 50:
+                return "All Action"
+            if r["def_score"] >= 50:
+                return "Destroyer"
+            if r["poss_score"] >= 50:
+                return "Playmaker"
+            return "Limited"
+
+        flags = {
+            "Ball Carrier": ("carry_score", 70, "s"),
+            "Box Threat": ("boxing_score", 80, "D"),  # diamond
+        }
+
+        return dict(
+            x_key="poss_score", y_key="def_score",
+            metric_groups=metric_groups,
+            classify=classify,
+            flags=flags,
+            quad=("DESTROYER", "ALL ACTION", "LIMITED", "PLAYMAKER"),
+            xlab="Possession Score", ylab="Defensive Score",
+            title="Central Midfield Archetype Map",
+        )
+
+    if pos_key == "ATT":
+        metric_groups = {
+            "Threat_score": {
+                "xG per 90": 0.3,
+                "Non-penalty goals per 90": 0.4,
+                "xA per 90": 0.3,
+            },
+            "poss_score": {
+                "Smart passes per 90": 0.1,
+                "Dribbles per 90": 0.3,
+                "Deep completions per 90": 0.1,
+                "Progressive runs per 90": 0.2,
+                "Passes to penalty area per 90": 0.3,
+            },
+            "carry_score": {
+                "Dribbles per 90": 0.4,
+                "Successful dribbles, %": 0.1,
+                "Progressive runs per 90": 0.3,
+                "Accelerations per 90": 0.2,
+            },
+        }
+
+        def classify(r):
+            if r["Threat_score"] >= 50 and r["poss_score"] >= 50:
+                return "Multi-Threat"
+            if r["Threat_score"] >= 50:
+                return "Final Action"
+            if r["poss_score"] >= 50:
+                return "Facilitator"
+            return "Limited"
+
+        flags = {
+            "Ball Carrier": ("carry_score", 70, "s"),
+        }
+
+        return dict(
+            x_key="Threat_score", y_key="poss_score",
+            metric_groups=metric_groups,
+            classify=classify,
+            flags=flags,
+            quad=("FACILITATOR", "MULTI-THREAT", "LIMITED", "FINAL ACTION"),
+            xlab="Threat Score", ylab="Possession Score",
+            title="Attacker Archetype Map",
+        )
+
+    if pos_key == "CF":
+        metric_groups = {
+            "Threat_score": {
+                "xG per 90": 0.4,
+                "Non-penalty goals per 90": 0.6,
+            },
+            "poss_score": {
+                "xA per 90": 0.2,
+                "Dribbles per 90": 0.3,
+                "Aerial duels won, %": 0.1,
+                "Progressive runs per 90": 0.2,
+                "Accurate passes, %": 0.1,
+                "Passes to penalty area per 90": 0.1,
+            },
+            "carry_score": {
+                "Dribbles per 90": 0.5,
+                "Successful dribbles, %": 0.05,
+                "Progressive runs per 90": 0.45,
+            },
+        }
+
+        def classify(r):
+            if r["Threat_score"] >= 50 and r["poss_score"] >= 50:
+                return "Complete"
+            if r["Threat_score"] >= 50:
+                return "Poacher"
+            if r["poss_score"] >= 50:
+                return "Link-Up"
+            return "Limited"
+
+        flags = {
+            "Ball Carrier": ("carry_score", 70, "s"),
+        }
+
+        return dict(
+            x_key="Threat_score", y_key="poss_score",
+            metric_groups=metric_groups,
+            classify=classify,
+            flags=flags,
+            quad=("LINK-UP", "COMPLETE", "LIMITED", "POACHER"),
+            xlab="Threat Score", ylab="Possession Score",
+            title="Striker Archetype Map",
+        )
+
+    # GK
+    metric_groups = {
+        "gk_score": {
+            "Prevented goals per 90": 0.8,
+            "Save rate, %": 0.2,
+        },
+        "poss_score": {
+            "Passes per 90": 0.25,
+            "Accurate passes, %": 0.5,
+            "Accurate long passes, %": 0.25,
+        },
+        "sweeper_score": {
+            "Exits per 90": 1.0,
+        },
+    }
+
+    def classify(r):
+        if r["gk_score"] >= 50 and r["poss_score"] >= 50:
+            return "Complete"
+        if r["gk_score"] >= 50:
+            return "Shot Stopper"
+        if r["poss_score"] >= 50:
+            return "Ball Player"
+        return "Limited"
+
+    flags = {
+        "Sweeper GK": ("sweeper_score", 70, "s"),
+    }
+
+    return dict(
+        x_key="gk_score", y_key="poss_score",
+        metric_groups=metric_groups,
+        classify=classify,
+        flags=flags,
+        quad=("BALL PLAYER", "COMPLETE", "LIMITED", "SHOT STOPPER"),
+        xlab="Goalkeeping Score", ylab="Possession Score",
+        title="Goalkeeper Archetype Map",
+    )
+
+cfg = build_position_config(POS_KEY)
+
+# ------------------------------------------------------------------
+# BUILD POOL
+# ------------------------------------------------------------------
+pool_sc = df[df["League"].isin(leagues_scatter)].copy()
+pool_sc["Primary Position"] = _primary_pos(pool_sc["Position"])
+pool_sc = pool_sc[POS_FILTERS[POS_KEY](pool_sc["Primary Position"])]
+
+pool_sc["Minutes played"] = pd.to_numeric(pool_sc["Minutes played"], errors="coerce")
+pool_sc["Age"] = pd.to_numeric(pool_sc["Age"], errors="coerce")
+pool_sc["League Strength"] = pool_sc["League"].map(LEAGUE_STRENGTHS).fillna(0.0)
+
+pool_sc = pool_sc[
+    pool_sc["Minutes played"].between(min_minutes_s, max_minutes_s)
+    & pool_sc["Age"].between(min_age_s, max_age_s)
+    & pool_sc["League Strength"].between(min_strength_s, max_strength_s)
+].copy()
+
+if pool_sc.empty:
+    st.info("No players after filtering.")
+    st.stop()
+
+# Ensure required metrics exist; drop missing gracefully
+needed_metrics = set()
+for _, grp in cfg["metric_groups"].items():
+    needed_metrics |= set(grp.keys())
+
+missing_metrics = [m for m in needed_metrics if m not in pool_sc.columns]
+# For robustness, fill missing as 0 (keeps plot alive)
+for m in missing_metrics:
+    pool_sc[m] = 0.0
+
+# Compute scores
+for score_name, grp in cfg["metric_groups"].items():
+    pool_sc[score_name] = pool_sc.apply(lambda r: weighted_percentile(pool_sc, r, grp), axis=1)
+
+# Archetype
+pool_sc["Archetype"] = pool_sc.apply(cfg["classify"], axis=1)
+
+# Flags -> marker priority: diamond > square > circle
+pool_sc["_marker"] = "o"
+for flag_name, (score_col, thr, marker) in cfg["flags"].items():
+    pool_sc[flag_name] = pool_sc[score_col] >= float(thr)
+
+# Priority order: D then s
+if any(v[2] == "D" for v in cfg["flags"].values()):
+    for flag_name, (_, _, marker) in cfg["flags"].items():
+        if marker == "D":
+            pool_sc.loc[pool_sc[flag_name], "_marker"] = "D"
+for flag_name, (_, _, marker) in cfg["flags"].items():
+    if marker == "s":
+        pool_sc.loc[(pool_sc[flag_name]) & (pool_sc["_marker"] == "o"), "_marker"] = "s"
+
+# ------------------------------------------------------------------
+# AUTO HIGHLIGHT/LABEL: ONLY TEAM_NAME
+# ------------------------------------------------------------------
+team_name = TEAM_NAME if "TEAM_NAME" in globals() else ""
+hl = pool_sc[pool_sc["Team"].astype(str).str.strip() == str(team_name).strip()].copy()
+
+# ------------------------------------------------------------------
+# PLOT
+# ------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(w_px / 100, h_px / 100), dpi=100)
+fig.patch.set_facecolor(PAGE_BG)
+ax.set_facecolor(PLOT_BG)
+
+ax.set_xlim(0, 100)
+ax.set_ylim(0, 100)
+ax.set_xlabel(cfg["xlab"], fontsize=16, fontweight="semibold", color=txt_col)
+ax.xaxis.labelpad = 14
+ax.set_ylabel(cfg["ylab"], fontsize=16, fontweight="semibold", color=txt_col)
+
+ax.xaxis.set_major_locator(MultipleLocator(10))
+ax.yaxis.set_major_locator(MultipleLocator(10))
+for tick in ax.get_xticklabels() + ax.get_yticklabels():
+    tick.set_fontweight("semibold")
+    tick.set_color(txt_col)
+    tick.set_fontsize(14)
+
+ax.grid(True, color=GRID_MAJ, linewidth=0.6)
+for s in ax.spines.values():
+    s.set_color("#e5e7eb")
+    s.set_linewidth(1.1)
+
+# Quadrants
+line_col = "#FFFFFF"
+ax.axvline(50, color=line_col, linestyle=(0, (4, 4)), lw=1.5)
+ax.axhline(50, color=line_col, linestyle=(0, (4, 4)), lw=1.5)
+
+tl, tr, bl, br = cfg["quad"]
+quad_fs = 16
+bbox_style = dict(boxstyle="round,pad=0.35", facecolor="#d1d5db", edgecolor="none", alpha=0.9)
+ax.text(6, 94, tl, fontsize=quad_fs, weight="bold", bbox=bbox_style)
+ax.text(94, 94, tr, fontsize=quad_fs, weight="bold", ha="right", bbox=bbox_style)
+ax.text(6, 6, bl, fontsize=quad_fs, weight="bold", bbox=bbox_style)
+ax.text(96, 6, br, fontsize=quad_fs, weight="bold", ha="right", bbox=bbox_style)
+
+# Points (all players)
+point_size = 240
+point_alpha = 0.92
+
+for _, r in pool_sc.iterrows():
+    arch = r["Archetype"]
+    col = ARCH_COLORS.get(arch, "#cbd5e1")
+    ax.scatter(
+        float(r[cfg["x_key"]]),
+        float(r[cfg["y_key"]]),
+        s=point_size,
+        c=col,
+        alpha=point_alpha,
+        marker=r["_marker"],
+        edgecolors="none",
+        linewidth=0,
+        zorder=2,
+    )
+
+# Highlight TEAM_NAME players with white edge
+if not hl.empty:
+    ax.scatter(
+        hl[cfg["x_key"]],
+        hl[cfg["y_key"]],
+        s=point_size * 1.15,
+        c="#C81E1E",
+        alpha=0.98,
+        marker="o",
+        edgecolors="white",
+        linewidths=1.8,
+        zorder=4,
+    )
+
+# Labels: ONLY TEAM_NAME players
+texts = []
+if not hl.empty:
+    for _, r in hl.iterrows():
+        t = ax.annotate(
+            str(r["Player"]),
+            (float(r[cfg["x_key"]]), float(r[cfg["y_key"]])),
+            xytext=(10, 12),
+            textcoords="offset points",
+            fontsize=14,
+            color=txt_col,
+            weight="semibold",
+            ha="left",
+            va="bottom",
+            zorder=6,
+        )
+        t.set_path_effects([pe.withStroke(linewidth=2, foreground="#020617", alpha=0.9)])
+        texts.append(t)
+
+    if HAVE_ADJUSTTEXT and texts:
+        try:
+            adjust_text(
+                texts, ax=ax,
+                only_move={"points": "y", "text": "xy"},
+                autoalign=True, precision=0.001, lim=150,
+                expand_text=(1.05, 1.10), expand_points=(1.05, 1.10),
+                force_text=(0.08, 0.12), force_points=(0.08, 0.12)
+            )
+        except Exception:
+            pass
+
+# Legend (Archetypes only; compact)
+arch_set = sorted(pool_sc["Archetype"].dropna().unique().tolist())
+handles = [
+    Line2D([0], [0], marker="s", linestyle="None", color="none",
+           markerfacecolor=ARCH_COLORS.get(a, "#cbd5e1"), markersize=14, label=a)
+    for a in arch_set
+]
+leg = ax.legend(
+    handles=handles,
+    title="Archetype",
+    loc="upper left",
+    bbox_to_anchor=(1.01, 1.00),
+    frameon=False,
+    fontsize=13,
+    title_fontsize=14,
+    handlelength=1.0,
+    handletextpad=0.4,
+    labelspacing=0.55,
+    borderaxespad=0.0,
+)
+leg.get_title().set_color(txt_col)
+leg.get_title().set_fontweight("semibold")
+for t in leg.get_texts():
+    t.set_color(txt_col)
+    t.set_fontweight("semibold")
+
+# Layout
+fig.subplots_adjust(left=0.06, right=0.865, bottom=0.11, top=1.02 - top_gap_px / float(h_px))
+
+# Render + download
+if render_exact:
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=100, facecolor=PAGE_BG)
+    buf.seek(0)
+    st.image(buf, width=w_px)
+    st.download_button(
+        "⬇️ Download Archetype Map (PNG)",
+        data=buf.getvalue(),
+        file_name=f"archetype_map_{POS_KEY.lower()}_{uuid.uuid4().hex[:6]}.png",
+        mime="image/png",
+    )
+else:
+    st.pyplot(fig)
+
+plt.close(fig)
+# ============================== END FEATURE — ARCHETYPE MAP ===========================================
 
 
 
