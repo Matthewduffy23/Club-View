@@ -1142,22 +1142,26 @@ for i, row in df_disp.iterrows():
 
 
 # =========================
-# SCATTERPLOT (Club View) — Player Metrics
+# SCATTERPLOT (Club View) — PLAYER PERFORMANCE
+# - Visible controls ONLY:
+#   - Position group (default CB)
+#   - Minutes filter (default 1000–5000)
+#   - X metric / Y metric (footballing RAW metrics only)
+#   - Label all players toggle (TEAM players labeled by default)
+#   - Export PNG button
+# - Auto smart presets by position group
+# - Median reference lines on both axes
 # =========================
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+from io import BytesIO
 
 st.markdown("---")
+st.markdown("<div class='section-title'>PLAYER PERFORMANCE</div>", unsafe_allow_html=True)
 
 # ---- helpers ----
 def _as_num(s):
     return pd.to_numeric(s, errors="coerce")
-
-def _first_existing(cols, candidates):
-    for c in candidates:
-        if c in cols:
-            return c
-    return None
 
 def _nice_step(vmin, vmax, target_ticks=12):
     import math
@@ -1200,16 +1204,11 @@ def _padded_limits(arr, pad_frac=0.06, headroom=0.03):
     pad = span * pad_frac
     return a_min - pad, a_max + pad + span * headroom
 
-# ---- position → subtitle (ON GRAPH ONLY) ----
-POS_TITLE = {
-    "GK": "Goalkeeper Performance",
-    "CB": "Center Back Performance",
-    "FB": "Full Back Performance",
-    "CM": "Central Midfield Performance",
-    "ATT": "Attacker Performance",
-    "CF": "Striker Performance",
-    "OTHER": "Player Performance",
-}
+def _pick_first_existing(options, candidates):
+    for c in candidates:
+        if c in options:
+            return c
+    return options[0] if options else None
 
 # ---- footballing metrics only (RAW values) ----
 FEATURES_SCATTER = sorted([m for m in metrics_used_by_roles() if m in df_all.columns])
@@ -1222,14 +1221,42 @@ for c in FEATURES_SCATTER:
 if not metric_cols:
     st.info("No footballing metric columns available for scatter.")
 else:
+    # ---- smart presets (your spec) ----
+    PRESET_BY_POS = {
+        "CB": ("Progressive passes per 90", "Aerial duels won, %"),          # keep what you have now
+        "GK": ("Exits per 90", "Prevented goals per 90"),
+        "FB": ("Dribbles per 90", "Progressive passes per 90"),
+        "CM": ("Dribbles per 90", "Progressive passes per 90"),
+        "ATT": ("xG per 90", "xA per 90"),
+        "CF": ("xG per 90", "Non-penalty goals per 90"),
+        "OTHER": (None, None),
+    }
+
+    POS_TITLE = {
+        "GK": "Goalkeeper Performance",
+        "CB": "Center Back Performance",
+        "FB": "Full Back Performance",
+        "CM": "Central Midfield Performance",
+        "ATT": "Attacker Performance",
+        "CF": "Striker Performance",
+        "OTHER": "Player Performance",
+    }
+
     # ---- controls (ONLY intended ones) ----
     pos_options = ["CB", "FB", "CM", "ATT", "CF", "GK", "OTHER"]
-    default_pos = "CB"  # ✅ DEFAULT CENTER BACKS
+    default_pos = "CB"  # ✅ default center backs
 
-    x_default = _first_existing(metric_cols, ["Progressive passes per 90", "xG per 90"]) or metric_cols[0]
-    y_default = _first_existing(metric_cols, ["Aerial duels won, %", "Non-penalty goals per 90"]) or (
-        metric_cols[1] if len(metric_cols) > 1 else metric_cols[0]
-    )
+    # minutes default 1000–5000
+    max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
+    default_mins = (1000, min(5000, max_m))
+
+    # session defaults (so presets apply when switching position, but don't fight user)
+    if "sc_last_pos" not in st.session_state:
+        st.session_state["sc_last_pos"] = None
+    if "sc_x_metric" not in st.session_state:
+        st.session_state["sc_x_metric"] = None
+    if "sc_y_metric" not in st.session_state:
+        st.session_state["sc_y_metric"] = None
 
     with st.expander("Scatter settings", expanded=False):
         c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.2, 1.6])
@@ -1242,43 +1269,59 @@ else:
                 key="club_sc_pos",
             )
 
-            max_m = int(max(5000, float(df_all[mins_col].max() if len(df_all) else 5000)))
             m_min, m_max = st.slider(
                 "Minutes filter",
                 0, max_m,
-                (1000, min(5000, max_m)),  # ✅ DEFAULT 1000–5000
+                default_mins,
                 step=10,
                 key="club_sc_mins",
             )
+
+        # apply smart preset when position changes OR when metrics not set yet
+        preset_x, preset_y = PRESET_BY_POS.get(pos_pick, (None, None))
+
+        needs_preset = (
+            st.session_state["sc_last_pos"] != pos_pick
+            or st.session_state["sc_x_metric"] not in metric_cols
+            or st.session_state["sc_y_metric"] not in metric_cols
+        )
+
+        if needs_preset:
+            # fallback safely if a preset metric is missing
+            if preset_x not in metric_cols:
+                preset_x = _pick_first_existing(metric_cols, ["Progressive passes per 90", "xG per 90", "Passes per 90"])
+            if preset_y not in metric_cols:
+                preset_y = _pick_first_existing(metric_cols, ["Aerial duels won, %", "xA per 90", "Non-penalty goals per 90"])
+            st.session_state["sc_x_metric"] = preset_x
+            st.session_state["sc_y_metric"] = preset_y
+            st.session_state["sc_last_pos"] = pos_pick
 
         with c2:
             x_metric = st.selectbox(
                 "X metric",
                 metric_cols,
-                index=(metric_cols.index(x_default) if x_default in metric_cols else 0),
+                index=metric_cols.index(st.session_state["sc_x_metric"]),
                 key="club_sc_x",
             )
+            st.session_state["sc_x_metric"] = x_metric
 
         with c3:
             y_metric = st.selectbox(
                 "Y metric",
                 metric_cols,
-                index=(metric_cols.index(y_default) if y_default in metric_cols else 1),
+                index=metric_cols.index(st.session_state["sc_y_metric"]),
                 key="club_sc_y",
             )
+            st.session_state["sc_y_metric"] = y_metric
 
         with c4:
-            label_all_players = st.checkbox(
-                "Label all players",
-                value=False,
-                key="club_sc_label_all",
-            )
+            label_all_players = st.checkbox("Label all players", value=False, key="club_sc_label_all")
 
     # ---- pool ----
     pool = df_all.copy()
     pool[mins_col] = _as_num(pool[mins_col]).fillna(0)
 
-    pool = pool[pool["PosGroup"] == pos_pick]
+    pool = pool[pool["PosGroup"].astype(str) == pos_pick]
     pool = pool[pool[mins_col].between(m_min, m_max)]
 
     pool[x_metric] = _as_num(pool[x_metric])
@@ -1289,8 +1332,8 @@ else:
         st.info("No players match the scatter filters.")
     else:
         team_mask = pool["Team"].astype(str).str.strip().eq(TEAM_NAME)
-        others = pool[~team_mask]
-        team_players = pool[team_mask]
+        others = pool[~team_mask].copy()
+        team_players = pool[team_mask].copy()
 
         # ---- plot ----
         fig, ax = plt.subplots(figsize=(11.5, 6.5), dpi=120)
@@ -1305,10 +1348,10 @@ else:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
 
-        # points
         ax.scatter(
             others[x_metric], others[y_metric],
-            s=60, alpha=0.55, c="#cbd5e1", edgecolors="none", zorder=2
+            s=60, alpha=0.55, c="#cbd5e1",
+            edgecolors="none", zorder=2
         )
         ax.scatter(
             team_players[x_metric], team_players[y_metric],
@@ -1317,54 +1360,94 @@ else:
         )
 
         # medians
-        ax.axvline(np.nanmedian(x_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
-        ax.axhline(np.nanmedian(y_vals), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+        ax.axvline(float(np.nanmedian(x_vals)), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
+        ax.axhline(float(np.nanmedian(y_vals)), color="#ffffff", ls=(0, (4, 4)), lw=2.2, zorder=3)
 
-        # labels
+        # labels: TEAM players by default; optional label all
         from matplotlib import patheffects as pe
+        try:
+            from adjustText import adjust_text
+            _HAS_ADJUST = True
+        except Exception:
+            _HAS_ADJUST = False
+
         texts = []
 
-        def _label(df, color, fs):
-            for _, r in df.iterrows():
-                ax.text(
-                    r[x_metric], r[y_metric], r["Player"],
+        def _label_df(df_lbl, color, fs):
+            for _, r in df_lbl.iterrows():
+                nm = str(r.get("Player", "")).strip()
+                if not nm:
+                    continue
+                xv = r.get(x_metric, np.nan)
+                yv = r.get(y_metric, np.nan)
+                if pd.isna(xv) or pd.isna(yv):
+                    continue
+                t = ax.annotate(
+                    nm, (float(xv), float(yv)),
+                    textcoords="offset points", xytext=(8, 8),
+                    ha="left", va="bottom",
                     fontsize=fs, fontweight="semibold",
-                    color=color, ha="left", va="bottom",
-                    zorder=6,
-                    path_effects=[pe.withStroke(linewidth=2.2, foreground="#0b0d12")]
+                    color=color, zorder=6, clip_on=True
                 )
+                t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="#0b0d12", alpha=0.95)])
+                texts.append(t)
 
-        _label(team_players, "#ffffff", 10)
+        _label_df(team_players, "#ffffff", 10)
         if label_all_players:
-            _label(others, "#e5e7eb", 9)
+            _label_df(others, "#e5e7eb", 9)
 
-        # axes
+        if _HAS_ADJUST and label_all_players and texts:
+            try:
+                adjust_text(
+                    texts, ax=ax,
+                    only_move={"points": "y", "text": "xy"},
+                    autoalign=True, precision=0.001, lim=120,
+                    expand_text=(1.03, 1.06), expand_points=(1.03, 1.06),
+                    force_text=(0.06, 0.10), force_points=(0.06, 0.10)
+                )
+            except Exception:
+                pass
+
+        # axes + denser ticks
         ax.set_xlabel(x_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
         ax.set_ylabel(y_metric, fontsize=13, fontweight="semibold", color="#f5f5f5")
 
-        step_x = _nice_step(*xlim)
-        step_y = _nice_step(*ylim)
-        ax.xaxis.set_major_locator(MultipleLocator(step_x))
-        ax.yaxis.set_major_locator(MultipleLocator(step_y))
+        step_x = _nice_step(*xlim, target_ticks=12)
+        step_y = _nice_step(*ylim, target_ticks=12)
+        ax.xaxis.set_major_locator(MultipleLocator(base=step_x))
+        ax.yaxis.set_major_locator(MultipleLocator(base=step_y))
         ax.xaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_x)}f"))
         ax.yaxis.set_major_formatter(FormatStrFormatter(f"%.{_decimals(step_y)}f"))
 
         ax.grid(True, linewidth=0.7, alpha=0.25)
         ax.tick_params(colors="#e5e7eb")
-        for s in ax.spines.values():
-            s.set_color("#6b7280")
-            s.set_linewidth(0.9)
+        for spine in ax.spines.values():
+            spine.set_color("#6b7280")
+            spine.set_linewidth(0.9)
 
-        # ---- POSITION SUBTITLE (ONLY TITLE) ----
+        # subtitle on chart only (position-dependent)
         ax.set_title(
             POS_TITLE.get(pos_pick, "Player Performance"),
-            fontsize=14,
-            fontweight="semibold",
-            color="#f5f5f5",
-            pad=10
+            fontsize=14, fontweight="semibold", color="#f5f5f5", pad=10
         )
 
+        # show plot
         st.pyplot(fig, use_container_width=True)
+
+        # ---- export button ----
+        png_buf = BytesIO()
+        fig.savefig(png_buf, format="png", dpi=220, facecolor=fig.get_facecolor())
+        png_buf.seek(0)
+
+        safe_title = POS_TITLE.get(pos_pick, "Player Performance").replace(" ", "_").lower()
+        st.download_button(
+            "Export chart (PNG)",
+            data=png_buf,
+            file_name=f"{TEAM_NAME}_{safe_title}_{x_metric}_vs_{y_metric}.png".replace(" ", "_"),
+            mime="image/png",
+            key="club_sc_export_png",
+        )
+
 
 
 
