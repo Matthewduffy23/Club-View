@@ -42,7 +42,7 @@ import streamlit as st
 # =========================
 # CONFIG (defaults; user can switch team at runtime)
 # =========================
-CSV_PATH = "Chinaall.csv"
+CSV_PATH = "Chinaaa.csv"
 
 # --- Team profiles (extend here) ---
 TEAM_PROFILES = {
