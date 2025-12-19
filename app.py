@@ -19,6 +19,12 @@
 # D) Remove edit options up top for inputting figures (NO custom header expander)
 # E) Fix NameError crash in Individual Metrics by adding _available_metric_pairs + _metric_pct/_metric_val helpers
 # F) Ensure selected team flows through ALL sections (cards, charts, highlights, FotMob, filenames)
+#
+# NEW FIX (your issue):
+# - Percentiles were only computed for metrics referenced by ROLE weight dictionaries.
+# - Individual Metrics lists include many metrics not in ROLE weights, so their "<metric> Percentile"
+#   columns never existed -> _available_metric_pairs filtered them out -> not visible.
+# - Now we compute percentiles for ALL metrics used by roles OR listed in METRICS_BY_GROUP.
 # ------------------------------------------------------------
 
 import os
@@ -66,7 +72,7 @@ TEAM_PROFILES = {
         "DEF_HDR": 73,
         "AVG_AGE": 29.8,
         "LEAGUE_POSITION": 4,
-        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/4177/squad/beijing-guoan",  
+        "FOTMOB_TEAM_URL": "https://www.fotmob.com/teams/4177/squad/beijing-guoan",
     },
 }
 
@@ -338,152 +344,6 @@ def _contract_year(row: pd.Series) -> str:
     return "—"
 
 # =========================
-# Percentiles computed from POOL (minutes slider affects POOL)
-# - per PosGroup when group has enough samples; fallback to global pool ranking
-# =========================
-def metrics_used_by_roles() -> set:
-    rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
-    s = set()
-    for rs in rolesets:
-        for _, wmap in rs.items():
-            s |= set(wmap.keys())
-    return s
-
-def add_pool_percentiles(df_all: pd.DataFrame, pool_mask: pd.Series, min_group: int = 5) -> pd.DataFrame:
-    used = metrics_used_by_roles()
-    out = df_all.copy()
-
-    for m in used:
-        if m in out.columns:
-            out[m] = pd.to_numeric(out[m], errors="coerce")
-
-    pool = out.loc[pool_mask].copy()
-    if pool.empty:
-        for m in used:
-            out[f"{m} Percentile"] = 0.0
-        return out
-
-    pool["__gcount"] = pool.groupby("PosGroup")["PosGroup"].transform("size")
-
-    for m in used:
-        if m not in pool.columns:
-            out[f"{m} Percentile"] = 0.0
-            continue
-
-        global_pct = pool[m].rank(pct=True) * 100.0
-        group_pct = pool.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100.0)
-
-        use_group = pool["__gcount"] >= min_group
-        pct = global_pct.where(~use_group, group_pct)
-
-        if m in LOWER_BETTER:
-            pct = 100.0 - pct
-
-        out[f"{m} Percentile"] = 0.0
-        out.loc[pool_mask, f"{m} Percentile"] = pct.fillna(0.0).values
-
-    return out
-
-# =========================
-# METRIC HELPERS (fix NameError + ensure correct display)
-# =========================
-def _metric_pct(row: pd.Series, metric: str) -> float:
-    """Returns computed percentile for metric (expects '<metric> Percentile' col)."""
-    try:
-        v = row.get(f"{metric} Percentile", np.nan)
-        return float(v) if not pd.isna(v) else np.nan
-    except Exception:
-        return np.nan
-
-def _metric_val(row: pd.Series, metric: str) -> float:
-    """Returns raw value for metric."""
-    try:
-        v = row.get(metric, np.nan)
-        v = pd.to_numeric(v, errors="coerce")
-        return float(v) if not pd.isna(v) else np.nan
-    except Exception:
-        return np.nan
-
-def _available_metric_pairs(df: pd.DataFrame, pairs):
-    """
-    Filters (label, metric) pairs to only those where:
-    - raw metric column exists
-    - percentile column exists
-    """
-    out = []
-    for lab, met in pairs:
-        if met in df.columns and f"{met} Percentile" in df.columns:
-            out.append((lab, met))
-    return out
-
-# =========================
-# FotMob photo scraping (cached)
-# =========================
-@st.cache_data(show_spinner=False, ttl=60*60*12)
-def fotmob_photo_map(team_url: str) -> Dict[str, str]:
-    """
-    Returns mapping from normalized full name -> image url (best-effort).
-    """
-    try:
-        if not team_url:
-            return {}
-        headers = {"User-Agent": "Mozilla/5.0"}
-        html = requests.get(team_url, headers=headers, timeout=20).text
-
-        ids = re.findall(r'"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"([^"]+)"', html)
-        if not ids:
-            ids = re.findall(r'"playerId"\s*:\s*(\d+).*?"name"\s*:\s*"([^"]+)"', html, flags=re.S)
-
-        out = {}
-        for pid, name in ids:
-            nm = _norm_one(name)
-            if not nm:
-                continue
-            out[nm] = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
-        return out
-    except Exception:
-        return {}
-
-def load_local_photo_overrides(path: str) -> Dict[str, str]:
-    if not path or not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        if isinstance(obj, dict):
-            return {_norm_one(k): str(v).strip() for k, v in obj.items() if str(v).strip()}
-        return {}
-    except Exception:
-        return {}
-
-def resolve_player_photo(player_name: str,
-                         team_photo_map: Dict[str, str],
-                         local_overrides: Dict[str, str]) -> str:
-    """
-    Priority:
-    1) local overrides by full name
-    2) fotmob by full name
-    3) fotmob by surname match
-    4) default avatar
-    """
-    n_full = _norm_one(player_name)
-    if n_full in local_overrides:
-        return local_overrides[n_full]
-
-    if n_full in team_photo_map:
-        return team_photo_map[n_full]
-
-    parts = [p for p in n_full.split() if p]
-    surname = parts[-1] if parts else ""
-    if surname:
-        for k, v in team_photo_map.items():
-            kp = [p for p in k.split() if p]
-            if kp and kp[-1] == surname:
-                return v
-
-    return DEFAULT_AVATAR
-
-# =========================
 # INDIVIDUAL METRICS LISTS (your exact order + labels)
 # =========================
 METRICS_BY_GROUP = {
@@ -705,6 +565,171 @@ METRICS_BY_GROUP = {
         ],
     },
 }
+
+# =========================
+# Percentiles computed from POOL (minutes slider affects POOL)
+# - per PosGroup when group has enough samples; fallback to global pool ranking
+# =========================
+def metrics_used_by_roles() -> set:
+    rolesets = [CB_ROLES, FB_ROLES, CM_ROLES, ATT_ROLES, CF_ROLES, GK_ROLES]
+    s = set()
+    for rs in rolesets:
+        for _, wmap in rs.items():
+            s |= set(wmap.keys())
+    return s
+
+# -------- FIX: include all metrics that can appear in Individual Metrics UI --------
+def metrics_used_for_percentiles() -> set:
+    """
+    Percentiles must exist for every metric we might display (METRICS_BY_GROUP)
+    and every metric we use for role scores (role weight dictionaries).
+    """
+    used = set()
+    used |= metrics_used_by_roles()
+    for grp in METRICS_BY_GROUP.values():
+        for _, pairs in grp.items():
+            used |= {met for _, met in pairs}
+    return used
+
+def add_pool_percentiles(df_all: pd.DataFrame, pool_mask: pd.Series, min_group: int = 5) -> pd.DataFrame:
+    # -------- FIX: was metrics_used_by_roles(); now includes Individual Metrics too --------
+    used = metrics_used_for_percentiles()
+    out = df_all.copy()
+
+    # ensure numeric
+    for m in used:
+        if m in out.columns:
+            out[m] = pd.to_numeric(out[m], errors="coerce")
+
+    pool = out.loc[pool_mask].copy()
+    if pool.empty:
+        for m in used:
+            out[f"{m} Percentile"] = 0.0
+        return out
+
+    pool["__gcount"] = pool.groupby("PosGroup")["PosGroup"].transform("size")
+
+    for m in used:
+        if m not in pool.columns:
+            # still create the percentile column so UI can detect it (will stay 0)
+            out[f"{m} Percentile"] = 0.0
+            continue
+
+        global_pct = pool[m].rank(pct=True) * 100.0
+        group_pct = pool.groupby("PosGroup")[m].transform(lambda s: s.rank(pct=True) * 100.0)
+
+        use_group = pool["__gcount"] >= min_group
+        pct = global_pct.where(~use_group, group_pct)
+
+        if m in LOWER_BETTER:
+            pct = 100.0 - pct
+
+        out[f"{m} Percentile"] = 0.0
+        out.loc[pool_mask, f"{m} Percentile"] = pct.fillna(0.0).values
+
+    return out
+
+# =========================
+# METRIC HELPERS (fix NameError + ensure correct display)
+# =========================
+def _metric_pct(row: pd.Series, metric: str) -> float:
+    """Returns computed percentile for metric (expects '<metric> Percentile' col)."""
+    try:
+        v = row.get(f"{metric} Percentile", np.nan)
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _metric_val(row: pd.Series, metric: str) -> float:
+    """Returns raw value for metric."""
+    try:
+        v = row.get(metric, np.nan)
+        v = pd.to_numeric(v, errors="coerce")
+        return float(v) if not pd.isna(v) else np.nan
+    except Exception:
+        return np.nan
+
+def _available_metric_pairs(df: pd.DataFrame, pairs):
+    """
+    Filters (label, metric) pairs to only those where:
+    - raw metric column exists
+    - percentile column exists
+    NOTE: With the percentile fix above, metrics listed in METRICS_BY_GROUP that exist
+    in the CSV will now also have a percentile column, so they will appear.
+    """
+    out = []
+    for lab, met in pairs:
+        if met in df.columns and f"{met} Percentile" in df.columns:
+            out.append((lab, met))
+    return out
+
+# =========================
+# FotMob photo scraping (cached)
+# =========================
+@st.cache_data(show_spinner=False, ttl=60*60*12)
+def fotmob_photo_map(team_url: str) -> Dict[str, str]:
+    """
+    Returns mapping from normalized full name -> image url (best-effort).
+    """
+    try:
+        if not team_url:
+            return {}
+        headers = {"User-Agent": "Mozilla/5.0"}
+        html = requests.get(team_url, headers=headers, timeout=20).text
+
+        ids = re.findall(r'"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"([^"]+)"', html)
+        if not ids:
+            ids = re.findall(r'"playerId"\s*:\s*(\d+).*?"name"\s*:\s*"([^"]+)"', html, flags=re.S)
+
+        out = {}
+        for pid, name in ids:
+            nm = _norm_one(name)
+            if not nm:
+                continue
+            out[nm] = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
+        return out
+    except Exception:
+        return {}
+
+def load_local_photo_overrides(path: str) -> Dict[str, str]:
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        if isinstance(obj, dict):
+            return {_norm_one(k): str(v).strip() for k, v in obj.items() if str(v).strip()}
+        return {}
+    except Exception:
+        return {}
+
+def resolve_player_photo(player_name: str,
+                         team_photo_map: Dict[str, str],
+                         local_overrides: Dict[str, str]) -> str:
+    """
+    Priority:
+    1) local overrides by full name
+    2) fotmob by full name
+    3) fotmob by surname match
+    4) default avatar
+    """
+    n_full = _norm_one(player_name)
+    if n_full in local_overrides:
+        return local_overrides[n_full]
+
+    if n_full in team_photo_map:
+        return team_photo_map[n_full]
+
+    parts = [p for p in n_full.split() if p]
+    surname = parts[-1] if parts else ""
+    if surname:
+        for k, v in team_photo_map.items():
+            kp = [p for p in k.split() if p]
+            if kp and kp[-1] == surname:
+                return v
+
+    return DEFAULT_AVATAR
+
 
 # =========================
 # STREAMLIT SETUP
