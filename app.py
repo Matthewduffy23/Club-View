@@ -1080,7 +1080,7 @@ header, footer { visibility:hidden; }
 # Helper blurb under PLAYERS (edit this text)
 # Put this right after your PLAYERS title render
 # -------------------------
-def players_helper(text: str = "Role scores are percentiles (0–99) vs your filtered pool. Tap a player to open Individual Metrics."):
+def players_helper(text: str = "Role scores are multiple weighted metrics scored into percentiles (0–99) vs your players in position in league. Tap a player to open Individual Metrics which are specific metric percentile scores."):
     st.markdown(f"<div class='helper-subtitle'>{text}</div>", unsafe_allow_html=True)
 
 
