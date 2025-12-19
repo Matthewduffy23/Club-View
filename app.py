@@ -786,15 +786,51 @@ header, footer { visibility:hidden; }
 .teamline-wrap{ display:flex; align-items:center; gap:8px; }
 .badge-mini{ width:18px; height:18px; border-radius:4px; display:inline-block; object-fit:contain; }
 
+/* ----- OPTIONAL: hide "League" label anywhere it appears in headers/cards ----- */
+/* If your "League" label is a specific class, replace these selectors with your real one */
+.league-label, .league, .leaguechip, .league-text { display:none !important; }
+
 .m-sec{ background:#121621; border:1px solid #242b3b; border-radius:16px; padding:10px 12px; }
 .m-title{ color:#e8ecff; font-weight:800; letter-spacing:.02em; margin:4px 0 10px 0; }
-.m-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 8px; border-radius:10px; }
-.m-label{ color:#c9d3f2; font-size:15.5px; letter-spacing:.1px; flex:1 1 auto; }
+
+/* ===== ORIGINAL (kept) ===== */
+/* .m-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 8px; border-radius:10px; } */
+/* .m-label{ color:#c9d3f2; font-size:15.5px; letter-spacing:.1px; flex:1 1 auto; } */
+
+/* ===== FIX: allow labels to shrink/wrap and avoid right-side overlay ===== */
+.m-row{
+  display:flex;
+  justify-content:flex-start !important;   /* avoid pushing content into right edge */
+  align-items:center;
+  gap:10px !important;
+  padding:8px 8px;
+  border-radius:10px;
+}
+.m-label{
+  color:#c9d3f2;
+  font-size:15.5px;
+  letter-spacing:.1px;
+  flex:1 1 auto !important;
+  min-width:0 !important;                 /* CRITICAL: allows shrink in flex */
+  white-space:normal !important;
+  overflow-wrap:anywhere !important;
+}
 .m-right{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
 .m-val{ color:#a8b3cf; font-size:13px; opacity:.9; min-width:54px; text-align:right; }
 .m-badge{ min-width:44px; text-align:center; padding:2px 10px; border-radius:8px; font-weight:800; font-size:18px; color:#0b0d12; border:1px solid rgba(0,0,0,.15); }
+
 .metrics-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
 @media (min-width: 820px){ .metrics-grid{ grid-template-columns:repeat(3,1fr);} }
+
+/* ===== Mobile safe area (Streamlit floating overlays can cover right side) ===== */
+@media (max-width: 600px){
+  .pro-card, .m-sec{
+    padding-right: 88px !important;  /* reserve right gutter */
+  }
+  .block-container{
+    padding-bottom: 140px !important;
+  }
+}
 
 .header-shell{
   background:#1c1c1d;border:1px solid #2a2a2b;border-radius:18px;padding:16px;
@@ -869,49 +905,9 @@ header, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-
-/* ===== FIX: allow labels to shrink/wrap instead of being covered ===== */
-.m-row{
-  justify-content:flex-start !important;   /* stop space-between pushing into the edge */
-  gap:10px !important;
-}
-
-.m-label{
-  flex: 1 1 auto !important;
-  min-width: 0 !important;                /* CRITICAL: allows flex shrink */
-  white-space: normal !important;
-  overflow-wrap: anywhere !important;      /* wrap long labels on mobile */
-}
-
-/* keep right side fixed */
-.m-right{
-  flex: 0 0 auto !important;
-}
-
-/* (Optional) if you prefer ellipsis instead of wrap, use this instead:
-.m-label{
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-}
-*/
-
-/* ===== FIX: add a mobile "safe area" on the right (Streamlit overlays) ===== */
-@media (max-width: 600px){
-  .pro-card, .m-sec{
-    padding-right: 88px !important;  /* reserve space so overlay buttons don't cover pills */
-  }
-  .block-container{
-    padding-bottom: 140px !important; /* stop bottom content getting covered */
-  }
-}
-
-</style>
-""", unsafe_allow_html=True)
+# IMPORTANT:
+# You had: st.markdown("""<style>  // ...""")
+# That "//" is not valid in Python. Use "#" comments outside strings, like above.
 
 
 # =========================
