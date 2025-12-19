@@ -43,7 +43,7 @@ TEAM_PROFILES = {
     "Chengdu Rongcheng": {
         "TEAM_NAME": "Chengdu Rongcheng",
         "CREST_PATH": "images/chengdu_rongcheng_f.c.svg.png",
-        "PERFORMANCE_IMAGE_PATH": "images/chengugraph.png",
+        "PERFORMANCE_IMAGE_PATH": "chengugraph.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
         "OVERALL": 95,
@@ -57,7 +57,7 @@ TEAM_PROFILES = {
     "Beijing Guoan": {
         "TEAM_NAME": "Beijing Guoan",
         "CREST_PATH": "images/beijing.png",
-        "PERFORMANCE_IMAGE_PATH": "images/beijinggraphh.png",
+        "PERFORMANCE_IMAGE_PATH": "beijinggraphh.png",
         "FLAG_PATH": "images/china.png",
         "LEAGUE_TEXT": "Super League",
         "OVERALL": 76,
