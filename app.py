@@ -1200,6 +1200,10 @@ f"</div>"
 )
 st.markdown(header_html, unsafe_allow_html=True)
 
+st.markdown("<div class='section-title'>PLAYERS</div>", unsafe_allow_html=True)
+players_helper()  # <-- edit default text inside the function if you want
+
+
 # =========================
 # PERFORMANCE
 # =========================
