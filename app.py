@@ -1458,7 +1458,7 @@ from matplotlib.ticker import MultipleLocator
 from matplotlib import patheffects as pe
 
 st.markdown("---")
-st.header("📊 Feature R — Squad Profile")
+st.header("SQUAD PROFILE")
 
 # --------------------------------------------------------------------------------------
 # CONFIG
