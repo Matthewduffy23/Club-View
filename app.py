@@ -1498,7 +1498,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge, Circle
 
 st.markdown("---")
-st.header("📊 Team Comparison Radar")
+st.header("Team Comparison Radar")
 
 # ---- CONFIG ----
 TEAM_CSV_PATH = "ChinaTeams.csv"
